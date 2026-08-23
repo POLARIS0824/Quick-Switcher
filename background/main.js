@@ -1474,13 +1474,6 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       }
       return;
     }
-    if (!canHostSwitcherSurface(tab)) {
-      // chrome://, Web Store and the browser default new tab cannot host the
-      // panel and cannot observe the modifier release; fall back to a blind
-      // MRU switch with no panel.
-      blindSwitchToNextMostRecentTab(tab, source);
-      return;
-    }
     const opening = beginTabSwitcherOpening(tab, source);
     if (!opening) {
       return;
@@ -1542,8 +1535,47 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
         finishOpening();
         return;
       }
+      // chrome:// pages, Web Store and the browser default new tab cannot host
+      // the panel. Borrow the surface of the nearest recent tab that can:
+      // focus that tab first, then open the panel there with the selection
+      // still computed against the original tab. With no host at all, fall
+      // back to a blind MRU switch.
+      const canHostOnActiveTab = canHostSwitcherSurface(activeTab);
+      const hostItem = canHostOnActiveTab
+        ? null
+        : items.find((item) => {
+            if (!item || item.id === activeTab.id) {
+              return false;
+            }
+            const candidate = tabList.find((tabItem) => tabItem && tabItem.id === item.id) || item;
+            return canHostSwitcherSurface(candidate);
+          });
+      const hostTab = canHostOnActiveTab
+        ? activeTab
+        : (hostItem ? (tabList.find((tabItem) => tabItem && tabItem.id === hostItem.id) || null) : null);
       const selectedIndex = getDefaultSwitcherSelectedIndex(items, activeTab.id);
-      openingHostTabId = activeTab.id;
+      if (!hostTab || typeof hostTab.id !== 'number') {
+        finishOpening();
+        blindSwitchToNextMostRecentTab(tab, source);
+        return;
+      }
+      openingHostTabId = hostTab.id;
+      if (hostTab.id !== activeTab.id) {
+        focusWindowAndActivateTab(hostTab.id, hostTab.windowId, (result) => {
+          if (!result || result.ok === false) {
+            finishOpening();
+            return;
+          }
+          injectTabSwitcherOnTab(hostTab, items, {
+            currentTabId: activeTab.id,
+            selectedIndex,
+            shortcut,
+            source,
+            onOpenComplete: finishOpeningAndArmShortcutRelease
+          });
+        });
+        return;
+      }
       injectTabSwitcherOnTab(activeTab, items, {
         currentTabId: activeTab.id,
         selectedIndex,
