@@ -3,13 +3,13 @@
 try {
   importScripts(chrome.runtime.getURL('background/recent-tab-switcher.js'));
 } catch (error) {
-  console.warn('QuickSwitch: failed to load the recent tab tracker.', error);
+  console.warn('QuickSwitcher: failed to load the recent tab tracker.', error);
 }
 
 try {
   importScripts(chrome.runtime.getURL('background/thumbnails.js'));
 } catch (error) {
-  console.warn('QuickSwitch: failed to load the thumbnail pipeline.', error);
+  console.warn('QuickSwitcher: failed to load the thumbnail pipeline.', error);
 }
 
 const RECENT_TAB_SWITCHER = globalThis.LumnoRecentTabSwitcher || {};

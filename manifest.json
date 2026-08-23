@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "AltQ Tab Switcher",
+  "name": "QuickSwitcher",
   "version": "1.0.1",
   "description": "Keyboard-only Alt+Q recent tab switcher with live page thumbnails.",
   "background": {
