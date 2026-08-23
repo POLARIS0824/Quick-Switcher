@@ -37,6 +37,7 @@ const TAB_SWITCHER_HOST_ID = '_quickswitch_tab_switcher_host_2026_unique_';
 const SWITCHER_POPUP_HOST_URL = 'pages/switcher-host.html';
 const SWITCHER_POPUP_WIDTH = 1120;
 const SWITCHER_POPUP_HEIGHT = 240;
+const SWITCHER_POPUP_TWO_ROW_HEIGHT = 440;
 const KEY_OBSERVER_FILES = ['content/key-observer.js'];
 const PANEL_FILES = ['content/panel.js'];
 const TAB_SWITCHER_LIMIT = 5;
@@ -1417,22 +1418,15 @@ function queryAllTabs() {
   });
 }
 
-// Full-size cards are 204px wide + 6px gaps + panel padding; size the popup
-// so every configured card count renders at full width (Chrome clamps windows
-// that would not fit on screen).
-function getSwitcherPopupWidth() {
-  if (panelTabCountCache === 7) {
-    return 1500;
-  }
-  if (panelTabCountCache === 10) {
-    return 2120;
-  }
-  return SWITCHER_POPUP_WIDTH;
+// The popup keeps the 5-card width; counts above 5 wrap into a second card
+// row (7 = 5 + 2, 10 = 5 + 5), so only the height grows.
+function getSwitcherPopupHeight() {
+  return panelTabCountCache > 5 ? SWITCHER_POPUP_TWO_ROW_HEIGHT : SWITCHER_POPUP_HEIGHT;
 }
 
 function computeSwitcherPopupBounds(baseWindow) {
-  const popupWidth = getSwitcherPopupWidth();
-  const fallback = { left: 120, top: 160, width: popupWidth, height: SWITCHER_POPUP_HEIGHT };
+  const popupHeight = getSwitcherPopupHeight();
+  const fallback = { left: 120, top: 160, width: SWITCHER_POPUP_WIDTH, height: popupHeight };
   const baseLeft = Number(baseWindow && baseWindow.left);
   const baseTop = Number(baseWindow && baseWindow.top);
   const baseWidth = Number(baseWindow && baseWindow.width);
@@ -1441,12 +1435,12 @@ function computeSwitcherPopupBounds(baseWindow) {
       !Number.isFinite(baseWidth) || !Number.isFinite(baseHeight) || baseWidth <= 0) {
     return fallback;
   }
-  const left = Math.round(baseLeft + Math.max(0, (baseWidth - popupWidth) / 2));
+  const left = Math.round(baseLeft + Math.max(0, (baseWidth - SWITCHER_POPUP_WIDTH) / 2));
   // Center the popup on the browser window's content area, where the in-page
   // panel sits (viewport vertical center); +44 approximates half the combined
   // tab-strip + toolbar height, which the extension API cannot measure.
-  const top = Math.round(baseTop + Math.max(0, (baseHeight - SWITCHER_POPUP_HEIGHT) / 2) + 44);
-  return { left, top, width: popupWidth, height: SWITCHER_POPUP_HEIGHT };
+  const top = Math.round(baseTop + Math.max(0, (baseHeight - popupHeight) / 2) + 44);
+  return { left, top, width: SWITCHER_POPUP_WIDTH, height: popupHeight };
 }
 
 function closeSwitcherPopupWindow(senderTab) {

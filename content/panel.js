@@ -1353,7 +1353,9 @@
     panel.setAttribute('role', 'listbox');
     panel.setAttribute('aria-label', options.ariaLabel);
     panel.dataset.visible = 'true';
-    panel.style.setProperty('--x-tab-count', String(Math.max(1, Math.min(10, tabs.length))));
+    // Columns per row caps at 5; extra cards flow into additional grid rows
+    // (7 cards = 5 + 2, 10 cards = 5 + 5), keeping every card full width.
+    panel.style.setProperty('--x-tab-count', String(Math.max(1, Math.min(5, tabs.length))));
     listEl = doc.createElement('div');
     listEl.className = 'x-tab-switcher-list';
     panel.appendChild(listEl);
