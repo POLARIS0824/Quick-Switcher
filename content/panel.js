@@ -800,6 +800,20 @@
         letter-spacing: 0;
         pointer-events: none !important;
       }
+      /* Cards are the only mouse surface: a trusted click jumps straight to
+      that tab. Hovering never touches the keyboard-selected card. */
+      #${PANEL_ID} .x-tab-switcher-card {
+        pointer-events: auto !important;
+        cursor: pointer;
+      }
+      #${PANEL_ID} .x-tab-switcher-card:not([data-active="true"]):hover {
+        border-color: rgba(15, 23, 42, 0.14);
+        background: rgba(255, 255, 255, 0.55);
+      }
+      #${PANEL_ID}[data-theme="dark"] .x-tab-switcher-card:not([data-active="true"]):hover {
+        border-color: rgba(148, 163, 184, 0.32);
+        background: rgba(30, 41, 59, 0.4);
+      }
       #${PANEL_ID} {
         all: unset;
         --x-tab-switcher-accent: #2563eb;
@@ -1195,6 +1209,14 @@
       if (accent) {
         button.style.setProperty('--x-tab-switcher-card-accent', accent);
       }
+      if (typeof options.onCardSelect === 'function') {
+        button.addEventListener('click', (event) => {
+          if (!event || event.isTrusted !== true) {
+            return;
+          }
+          options.onCardSelect(index);
+        });
+      }
 
       const thumb = doc.createElement('div');
       thumb.className = 'x-tab-switcher-thumb';
@@ -1417,7 +1439,12 @@
       getHostLabel,
       getMessage,
       normalizeAccentCss,
-      getThumbnailStatus
+      getThumbnailStatus,
+      onCardSelect: (index) => {
+        selectedIndex = clampSelectedIndex(index, tabs.length);
+        renderSelection();
+        switchToSelected();
+      }
     });
     const panel = tabSwitcherView.panel;
     if (!panel) {
