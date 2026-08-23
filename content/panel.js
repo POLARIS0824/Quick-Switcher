@@ -1520,7 +1520,7 @@
     host._quickswitchTabSwitcherGetPanelMetrics = function() {
       const rect = panel.getBoundingClientRect();
       return Number.isFinite(rect.width) && rect.width > 0 && Number.isFinite(rect.height)
-        ? { width: rect.width, height: rect.height }
+        ? { width: rect.width, height: rect.height, count: tabs.length }
         : null;
     };
     host._quickswitchTabSwitcherRelayout = function() {

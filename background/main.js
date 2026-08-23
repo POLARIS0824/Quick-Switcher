@@ -38,6 +38,7 @@ const SWITCHER_POPUP_HOST_URL = 'pages/switcher-host.html';
 const SWITCHER_POPUP_WIDTH = 1120;
 const SWITCHER_POPUP_HEIGHT = 240;
 const SWITCHER_POPUP_TWO_ROW_HEIGHT = 440;
+const SWITCHER_POPUP_SIZE_CACHE_KEY = 'switcherPopupSizeCache';
 const KEY_OBSERVER_FILES = ['content/key-observer.js'];
 const PANEL_FILES = ['content/panel.js'];
 const TAB_SWITCHER_LIMIT = 5;
@@ -1419,14 +1420,50 @@ function queryAllTabs() {
 }
 
 // The popup keeps the 5-card width; counts above 5 wrap into a second card
-// row (7 = 5 + 2, 10 = 5 + 5), so only the height grows.
-function getSwitcherPopupHeight() {
-  return panelTabCountCache > 5 ? SWITCHER_POPUP_TWO_ROW_HEIGHT : SWITCHER_POPUP_HEIGHT;
+// row (7 = 5 + 2, 10 = 5 + 5), so only the height grows. Once the popup page
+// has measured a live panel it caches the exact fitted size per rendered card
+// count, so later windows are created at the right size with no visible
+// resize hop.
+let switcherPopupSizeCache = {};
+let switcherPopupSizeCachePromise = null;
+
+function ensureSwitcherPopupSizeCacheLoaded() {
+  if (switcherPopupSizeCachePromise) {
+    return switcherPopupSizeCachePromise;
+  }
+  const storageArea = chrome && chrome.storage && chrome.storage.local
+    ? chrome.storage.local
+    : null;
+  if (!storageArea || typeof storageArea.get !== 'function') {
+    return Promise.resolve(false);
+  }
+  switcherPopupSizeCachePromise = new Promise((resolve) => {
+    storageArea.get([SWITCHER_POPUP_SIZE_CACHE_KEY], (result) => {
+      const raw = result ? result[SWITCHER_POPUP_SIZE_CACHE_KEY] : null;
+      switcherPopupSizeCache = raw && typeof raw === 'object' ? raw : {};
+      resolve(true);
+    });
+  });
+  return switcherPopupSizeCachePromise;
 }
 
-function computeSwitcherPopupBounds(baseWindow) {
-  const popupHeight = getSwitcherPopupHeight();
-  const fallback = { left: 120, top: 160, width: SWITCHER_POPUP_WIDTH, height: popupHeight };
+function getSwitcherPopupPresetSize(tabCount) {
+  const cached = switcherPopupSizeCache[String(tabCount)];
+  const width = Number(cached && cached.width);
+  const height = Number(cached && cached.height);
+  if (Number.isFinite(width) && width >= 320 && width <= 4000 &&
+      Number.isFinite(height) && height >= 120 && height <= 4000) {
+    return { width: Math.round(width), height: Math.round(height) };
+  }
+  return {
+    width: SWITCHER_POPUP_WIDTH,
+    height: tabCount > 5 ? SWITCHER_POPUP_TWO_ROW_HEIGHT : SWITCHER_POPUP_HEIGHT
+  };
+}
+
+function computeSwitcherPopupBounds(baseWindow, tabCount) {
+  const size = getSwitcherPopupPresetSize(tabCount);
+  const fallback = { left: 120, top: 160, width: size.width, height: size.height };
   const baseLeft = Number(baseWindow && baseWindow.left);
   const baseTop = Number(baseWindow && baseWindow.top);
   const baseWidth = Number(baseWindow && baseWindow.width);
@@ -1435,12 +1472,12 @@ function computeSwitcherPopupBounds(baseWindow) {
       !Number.isFinite(baseWidth) || !Number.isFinite(baseHeight) || baseWidth <= 0) {
     return fallback;
   }
-  const left = Math.round(baseLeft + Math.max(0, (baseWidth - SWITCHER_POPUP_WIDTH) / 2));
+  const left = Math.round(baseLeft + Math.max(0, (baseWidth - size.width) / 2));
   // Center the popup on the browser window's content area, where the in-page
   // panel sits (viewport vertical center); +44 approximates half the combined
   // tab-strip + toolbar height, which the extension API cannot measure.
-  const top = Math.round(baseTop + Math.max(0, (baseHeight - popupHeight) / 2) + 44);
-  return { left, top, width: SWITCHER_POPUP_WIDTH, height: popupHeight };
+  const top = Math.round(baseTop + Math.max(0, (baseHeight - size.height) / 2) + 44);
+  return { left, top, width: size.width, height: size.height };
 }
 
 function closeSwitcherPopupWindow(senderTab) {
@@ -1508,17 +1545,23 @@ function openSwitcherInPopupWindow(activeTab, tabList, items, context) {
       context.onHostReady(popupTab);
     });
   };
-  if (typeof activeTab.windowId !== 'number' || typeof chrome.windows.get !== 'function') {
-    createPopup(computeSwitcherPopupBounds(null));
-    return;
-  }
-  chrome.windows.get(activeTab.windowId, (baseWindow) => {
-    if (chrome.runtime && chrome.runtime.lastError) {
-      createPopup(computeSwitcherPopupBounds(null));
+  const tabCount = Array.isArray(items)
+    ? Math.max(1, Math.min(10, items.filter((item) => item && typeof item.id === 'number').length))
+    : 1;
+  const createWithBounds = () => {
+    if (typeof activeTab.windowId !== 'number' || typeof chrome.windows.get !== 'function') {
+      createPopup(computeSwitcherPopupBounds(null, tabCount));
       return;
     }
-    createPopup(computeSwitcherPopupBounds(baseWindow));
-  });
+    chrome.windows.get(activeTab.windowId, (baseWindow) => {
+      if (chrome.runtime && chrome.runtime.lastError) {
+        createPopup(computeSwitcherPopupBounds(null, tabCount));
+        return;
+      }
+      createPopup(computeSwitcherPopupBounds(baseWindow, tabCount));
+    });
+  };
+  ensureSwitcherPopupSizeCacheLoaded().catch(() => {}).then(createWithBounds);
 }
 
 function blindSwitchToNextMostRecentTab(tab, source) {

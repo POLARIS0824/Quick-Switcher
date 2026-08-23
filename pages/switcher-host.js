@@ -7,6 +7,8 @@
   const BLUR_CLOSE_DELAY_MS = 120;
   const POLL_INTERVAL_MS = 200;
   const PANEL_FIT_MARGIN_PX = 12;
+  const PANEL_FIT_RESIZE_DELTA_PX = 2;
+  const POPUP_SIZE_CACHE_KEY = 'switcherPopupSizeCache';
 
   const loadedAt = Date.now();
   let focusedAt = Date.now();
@@ -32,9 +34,37 @@
     return document.getElementById(TAB_SWITCHER_HOST_ID);
   }
 
-  // The window is created with a rough preset size; once the panel is live,
-  // measure its real bounds (transform included) and shrink the window to a
-  // snug fit so the popup does not look a size bigger than the panel.
+  // The window is created with a cached-or-preset size; once the panel is
+  // live, verify against its real bounds (transform included). Only resize
+  // when the mismatch exceeds a small threshold (first run or changed CSS),
+  // then remember the fitted size per card count so future windows are born
+  // at the right size with no visible resize hop.
+  function rememberFittedPopupSize(count, width, height) {
+    if (!chrome || !chrome.storage || !chrome.storage.local ||
+        typeof chrome.storage.local.get !== 'function' ||
+        typeof chrome.storage.local.set !== 'function' ||
+        !Number.isFinite(count) || count <= 0) {
+      return;
+    }
+    try {
+      chrome.storage.local.get([POPUP_SIZE_CACHE_KEY], (result) => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          return;
+        }
+        const cache = result && result[POPUP_SIZE_CACHE_KEY] &&
+          typeof result[POPUP_SIZE_CACHE_KEY] === 'object'
+          ? result[POPUP_SIZE_CACHE_KEY]
+          : {};
+        cache[String(count)] = { width, height };
+        chrome.storage.local.set({ [POPUP_SIZE_CACHE_KEY]: cache }, () => {
+          void (chrome.runtime && chrome.runtime.lastError);
+        });
+      });
+    } catch (error) {
+      // Cache writes are best-effort.
+    }
+  }
+
   function fitPopupWindowToPanel(panelHost) {
     const getMetrics = panelHost._quickswitchTabSwitcherGetPanelMetrics;
     if (typeof getMetrics !== 'function') {
@@ -51,6 +81,12 @@
       }
       const width = Math.ceil(metrics.width + PANEL_FIT_MARGIN_PX * 2);
       const height = Math.ceil(metrics.height + PANEL_FIT_MARGIN_PX * 2);
+      rememberFittedPopupSize(metrics.count, width, height);
+      const widthDelta = Math.abs(window.innerWidth - width);
+      const heightDelta = Math.abs(window.innerHeight - height);
+      if (widthDelta <= PANEL_FIT_RESIZE_DELTA_PX && heightDelta <= PANEL_FIT_RESIZE_DELTA_PX) {
+        return;
+      }
       const relayout = () => {
         if (!didCloseWindow && typeof panelHost._quickswitchTabSwitcherRelayout === 'function') {
           panelHost._quickswitchTabSwitcherRelayout();
