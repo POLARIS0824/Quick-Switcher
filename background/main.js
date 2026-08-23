@@ -1341,7 +1341,10 @@ function computeSwitcherPopupBounds(baseWindow) {
     return fallback;
   }
   const left = Math.round(baseLeft + Math.max(0, (baseWidth - SWITCHER_POPUP_WIDTH) / 2));
-  const top = Math.round(baseTop + Math.max(96, baseHeight * 0.16));
+  // Center the popup on the browser window's content area, where the in-page
+  // panel sits (viewport vertical center); +44 approximates half the combined
+  // tab-strip + toolbar height, which the extension API cannot measure.
+  const top = Math.round(baseTop + Math.max(0, (baseHeight - SWITCHER_POPUP_HEIGHT) / 2) + 44);
   return { left, top, width: SWITCHER_POPUP_WIDTH, height: SWITCHER_POPUP_HEIGHT };
 }
 
