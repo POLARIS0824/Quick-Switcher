@@ -1000,11 +1000,20 @@ function getDefaultSwitcherSelectedIndex(items, currentTabId) {
   return 0;
 }
 
+// The key observer is statically registered for every document loaded after
+// extension (re)load; the dynamic injection below only bootstraps tabs that
+// predate it. Remember successful injections so repeat shortcut presses do
+// not pay an all-frames executeScript round trip every time.
+const keyObserverInjectedTabIds = new Set();
+
 function prepareShortcutKeyObserver(tab) {
   if (!tab || typeof tab.id !== 'number') {
     return Promise.resolve(false);
   }
   if (isTabSwitcherExtensionPageMessageTarget(tab)) {
+    return Promise.resolve(true);
+  }
+  if (keyObserverInjectedTabIds.has(tab.id)) {
     return Promise.resolve(true);
   }
   if (!chrome || !chrome.scripting || typeof chrome.scripting.executeScript !== 'function') {
@@ -1022,6 +1031,9 @@ function prepareShortcutKeyObserver(tab) {
         const error = chrome.runtime && chrome.runtime.lastError
           ? chrome.runtime.lastError.message || 'unknown'
           : '';
+        if (!error) {
+          keyObserverInjectedTabIds.add(tab.id);
+        }
         resolve(!error);
       });
     } catch (error) {
@@ -1832,6 +1844,7 @@ if (chrome && chrome.windows && chrome.windows.onFocusChanged) {
 if (chrome && chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener((tabId) => {
     switcherPopupHostTabIds.delete(tabId);
+    keyObserverInjectedTabIds.delete(tabId);
     removeRecentSwitcherTab(tabId);
     Array.from(tabSwitcherHostTabIdByWindowId.entries()).forEach(([windowId, hostTabId]) => {
       if (hostTabId === tabId) {
