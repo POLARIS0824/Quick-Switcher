@@ -20,9 +20,14 @@ const FALLBACK_TAB_SWITCHER_SHORTCUT = 'Alt+Q';
 const ENABLED_STORAGE_KEY = 'enabled';
 const TAB_SWITCHER_STATE_STORAGE_KEY = 'state';
 const TAB_SWITCHER_EXTENSION_PAGE_PORT_NAME = 'lumno-tab-switcher-extension-page';
-const TAB_SWITCHER_EXTENSION_PAGE_PORT_WAIT_MS = 650;
+// A freshly created popup window still has to load its page and connect the
+// port before the open command can be delivered; wait long enough for that.
+const TAB_SWITCHER_EXTENSION_PAGE_PORT_WAIT_MS = 2000;
 const TAB_SWITCHER_EXTENSION_PAGE_PORT_RETRY_MS = 50;
 const TAB_SWITCHER_HOST_ID = '_quickswitch_tab_switcher_host_2026_unique_';
+const SWITCHER_POPUP_HOST_URL = 'pages/switcher-host.html';
+const SWITCHER_POPUP_WIDTH = 1120;
+const SWITCHER_POPUP_HEIGHT = 240;
 const KEY_OBSERVER_FILES = ['content/key-observer.js'];
 const PANEL_FILES = ['content/panel.js'];
 const TAB_SWITCHER_LIMIT = 5;
@@ -36,6 +41,7 @@ let tabSwitcherEnabledCache = true;
 const tabSwitcherExtensionPagePortsByTabId = new Map();
 const tabSwitcherOpeningByWindowKey = new Map();
 const tabSwitcherHostTabIdByWindowId = new Map();
+const switcherPopupHostTabIds = new Set();
 let tabSwitcherExtensionPageRequestSeq = 0;
 let tabSwitcherStateLoaded = false;
 let tabSwitcherStateLoadPromise = null;
@@ -124,6 +130,10 @@ function isOwnExtensionPageUrl(url) {
 
 function shouldTrackSwitcherTab(tab) {
   if (!tab || typeof tab.id !== 'number' || typeof tab.windowId !== 'number' || tab.incognito === true) {
+    return false;
+  }
+  // The switcher popup window is a transient surface, not a real destination.
+  if (switcherPopupHostTabIds.has(tab.id)) {
     return false;
   }
   const url = getResolvedTabUrl(tab);
@@ -1306,6 +1316,99 @@ function queryAllTabs() {
   });
 }
 
+function computeSwitcherPopupBounds(baseWindow) {
+  const fallback = { left: 120, top: 160, width: SWITCHER_POPUP_WIDTH, height: SWITCHER_POPUP_HEIGHT };
+  const baseLeft = Number(baseWindow && baseWindow.left);
+  const baseTop = Number(baseWindow && baseWindow.top);
+  const baseWidth = Number(baseWindow && baseWindow.width);
+  const baseHeight = Number(baseWindow && baseWindow.height);
+  if (!Number.isFinite(baseLeft) || !Number.isFinite(baseTop) ||
+      !Number.isFinite(baseWidth) || !Number.isFinite(baseHeight) || baseWidth <= 0) {
+    return fallback;
+  }
+  const left = Math.round(baseLeft + Math.max(0, (baseWidth - SWITCHER_POPUP_WIDTH) / 2));
+  const top = Math.round(baseTop + Math.max(96, baseHeight * 0.16));
+  return { left, top, width: SWITCHER_POPUP_WIDTH, height: SWITCHER_POPUP_HEIGHT };
+}
+
+function closeSwitcherPopupWindow(senderTab) {
+  if (!senderTab || typeof senderTab.id !== 'number' || !switcherPopupHostTabIds.has(senderTab.id)) {
+    return;
+  }
+  if (typeof senderTab.windowId !== 'number' ||
+      !chrome || !chrome.windows || typeof chrome.windows.remove !== 'function') {
+    return;
+  }
+  chrome.windows.remove(senderTab.windowId, () => {
+    void (chrome.runtime && chrome.runtime.lastError);
+  });
+}
+
+// Opens the switcher in a small popup window above the active tab's window, so
+// restricted pages (chrome://, Web Store, the default new tab) get the panel
+// without leaving the page. The popup page is an own extension page, so the
+// regular extension-page port bridge drives it.
+function openSwitcherInPopupWindow(activeTab, tabList, items, context) {
+  const onUnavailable = () => {
+    if (context && typeof context.onUnavailable === 'function') {
+      context.onUnavailable();
+    }
+  };
+  if (!chrome || !chrome.windows || typeof chrome.windows.create !== 'function') {
+    onUnavailable();
+    return;
+  }
+  // Reuse a still-open switcher popup instead of stacking a second window.
+  const existingPopupTab = (Array.isArray(tabList) ? tabList : []).find((tabItem) =>
+    tabItem && typeof tabItem.id === 'number' && switcherPopupHostTabIds.has(tabItem.id)) || null;
+  if (existingPopupTab) {
+    context.onHostReady(existingPopupTab);
+    return;
+  }
+  const createPopup = (bounds) => {
+    chrome.windows.create({
+      type: 'popup',
+      focused: true,
+      url: SWITCHER_POPUP_HOST_URL,
+      left: bounds.left,
+      top: bounds.top,
+      width: bounds.width,
+      height: bounds.height
+    }, (createdWindow) => {
+      if (chrome.runtime && chrome.runtime.lastError) {
+        onUnavailable();
+        return;
+      }
+      const popupTab = createdWindow && Array.isArray(createdWindow.tabs) &&
+        createdWindow.tabs[0] && typeof createdWindow.tabs[0].id === 'number'
+        ? createdWindow.tabs[0]
+        : null;
+      if (!popupTab) {
+        if (createdWindow && typeof createdWindow.id === 'number' && chrome.windows.remove) {
+          chrome.windows.remove(createdWindow.id, () => {
+            void (chrome.runtime && chrome.runtime.lastError);
+          });
+        }
+        onUnavailable();
+        return;
+      }
+      switcherPopupHostTabIds.add(popupTab.id);
+      context.onHostReady(popupTab);
+    });
+  };
+  if (typeof activeTab.windowId !== 'number' || typeof chrome.windows.get !== 'function') {
+    createPopup(computeSwitcherPopupBounds(null));
+    return;
+  }
+  chrome.windows.get(activeTab.windowId, (baseWindow) => {
+    if (chrome.runtime && chrome.runtime.lastError) {
+      createPopup(computeSwitcherPopupBounds(null));
+      return;
+    }
+    createPopup(computeSwitcherPopupBounds(baseWindow));
+  });
+}
+
 function blindSwitchToNextMostRecentTab(tab, source) {
   Promise.all([
     ensureTabSwitcherStateLoaded().catch(() => null),
@@ -1536,29 +1639,13 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
         return;
       }
       // chrome:// pages, Web Store and the browser default new tab cannot host
-      // the panel. Borrow the surface of the nearest recent tab that can:
-      // focus that tab first, then open the panel there with the selection
-      // still computed against the original tab. With no host at all, fall
-      // back to a blind MRU switch.
+      // the panel. Open it in a dedicated popup window so the original tab is
+      // left untouched; when popup windows are unavailable, borrow the surface
+      // of the nearest recent tab that can host it (focus that tab first, with
+      // the selection still computed against the original tab); with no host
+      // at all, fall back to a blind MRU switch.
       const canHostOnActiveTab = canHostSwitcherSurface(activeTab);
-      const hostItem = canHostOnActiveTab
-        ? null
-        : items.find((item) => {
-            if (!item || item.id === activeTab.id) {
-              return false;
-            }
-            const candidate = tabList.find((tabItem) => tabItem && tabItem.id === item.id) || item;
-            return canHostSwitcherSurface(candidate);
-          });
-      const hostTab = canHostOnActiveTab
-        ? activeTab
-        : (hostItem ? (tabList.find((tabItem) => tabItem && tabItem.id === hostItem.id) || null) : null);
       const selectedIndex = getDefaultSwitcherSelectedIndex(items, activeTab.id);
-      if (!hostTab || typeof hostTab.id !== 'number') {
-        finishOpening();
-        blindSwitchToNextMostRecentTab(tab, source);
-        return;
-      }
       const handleOpenComplete = (ok, reason) => {
         finishOpeningAndArmShortcutRelease(ok);
         if (ok !== true && reason === 'page-not-focused') {
@@ -1567,29 +1654,51 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
           blindSwitchToNextMostRecentTab(tab, source);
         }
       };
-      openingHostTabId = hostTab.id;
-      if (hostTab.id !== activeTab.id) {
+      const injectOnHost = (hostTab) => {
+        injectTabSwitcherOnTab(hostTab, items, {
+          currentTabId: activeTab.id,
+          selectedIndex,
+          shortcut,
+          source,
+          onOpenComplete: handleOpenComplete
+        });
+      };
+      const openSwitcherOnBorrowedHost = () => {
+        const hostItem = items.find((item) => {
+          if (!item || item.id === activeTab.id) {
+            return false;
+          }
+          const candidate = tabList.find((tabItem) => tabItem && tabItem.id === item.id) || item;
+          return canHostSwitcherSurface(candidate);
+        });
+        const hostTab = hostItem
+          ? (tabList.find((tabItem) => tabItem && tabItem.id === hostItem.id) || null)
+          : null;
+        if (!hostTab || typeof hostTab.id !== 'number') {
+          finishOpening();
+          blindSwitchToNextMostRecentTab(tab, source);
+          return;
+        }
+        openingHostTabId = hostTab.id;
         focusWindowAndActivateTab(hostTab.id, hostTab.windowId, (result) => {
           if (!result || result.ok === false) {
             finishOpening();
             return;
           }
-          injectTabSwitcherOnTab(hostTab, items, {
-            currentTabId: activeTab.id,
-            selectedIndex,
-            shortcut,
-            source,
-            onOpenComplete: handleOpenComplete
-          });
+          injectOnHost(hostTab);
         });
+      };
+      if (canHostOnActiveTab) {
+        openingHostTabId = activeTab.id;
+        injectOnHost(activeTab);
         return;
       }
-      injectTabSwitcherOnTab(activeTab, items, {
-        currentTabId: activeTab.id,
-        selectedIndex,
-        shortcut,
-        source,
-        onOpenComplete: handleOpenComplete
+      openSwitcherInPopupWindow(activeTab, tabList, items, {
+        onHostReady: (popupTab) => {
+          openingHostTabId = popupTab.id;
+          injectOnHost(popupTab);
+        },
+        onUnavailable: openSwitcherOnBorrowedHost
       });
     }).catch(() => {
       finishOpening();
@@ -1622,10 +1731,12 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         sendResponse({ ok: false, reason: 'invalid-tab' });
         return;
       }
+      const senderTab = sender && sender.tab ? sender.tab : null;
       focusWindowAndActivateTab(
         request.tabId,
         typeof request.windowId === 'number' ? request.windowId : null,
         (result) => {
+          closeSwitcherPopupWindow(senderTab);
           sendResponse(result || { ok: false });
         }
       );
@@ -1699,6 +1810,7 @@ if (chrome && chrome.windows && chrome.windows.onFocusChanged) {
 
 if (chrome && chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener((tabId) => {
+    switcherPopupHostTabIds.delete(tabId);
     removeRecentSwitcherTab(tabId);
     Array.from(tabSwitcherHostTabIdByWindowId.entries()).forEach(([windowId, hostTabId]) => {
       if (hostTabId === tabId) {
