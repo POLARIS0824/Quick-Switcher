@@ -374,6 +374,31 @@
       return queued;
     }
 
+    // Between the initial active-tab check and the actual captureVisibleTab
+    // call sit several async hops (state query, panel-hide paint wait); the
+    // visible tab can change underneath (e.g. the borrow-host flow switches
+    // focus right after starting a pre-capture). Re-read the tab at storage
+    // time so pixels are never attributed to a tab that is no longer visible.
+    function verifyCapturedTabStillActive(tabId, resolvedTab) {
+      return new Promise((resolve) => {
+        if (!chromeApi || !chromeApi.tabs || typeof chromeApi.tabs.get !== 'function') {
+          resolve(resolvedTab);
+          return;
+        }
+        chromeApi.tabs.get(tabId, (freshTab) => {
+          if (chromeApi.runtime && chromeApi.runtime.lastError) {
+            resolve(null);
+            return;
+          }
+          if (!freshTab || typeof freshTab.id !== 'number' || freshTab.active !== true) {
+            resolve(null);
+            return;
+          }
+          resolve(freshTab);
+        });
+      });
+    }
+
     function captureSwitcherThumbnailForTab(tab, reason) {
       const tabId = tab && typeof tab.id === 'number' ? tab.id : null;
       const windowId = tab && typeof tab.windowId === 'number' ? tab.windowId : null;
@@ -439,33 +464,40 @@
               resolve(false);
               return;
             }
-            prepareSwitcherThumbnailDataUrl(captureResult.dataUrl).then((thumbnailDataUrl) => {
-              if (!thumbnailDataUrl || !tracker || typeof tracker.setThumbnail !== 'function') {
-                logSwitcherThumbnailCaptureFailure(resolvedTab, 'empty-thumbnail-data', reason);
+            verifyCapturedTabStillActive(tabId, resolvedTab).then((freshTab) => {
+              if (!freshTab) {
+                logSwitcherThumbnailCaptureFailure(resolvedTab, 'tab-became-inactive', reason);
                 resolve(false);
                 return;
               }
-              const didSet = tracker.setThumbnail(resolvedTab.id, thumbnailDataUrl, Date.now(), {
-                url: getResolvedTabUrl(resolvedTab)
-              });
-              if (didSet) {
-                schedulePersistState();
-                if (isSwitcherCommandCaptureReason(reason)) {
-                  postTabSwitcherThumbnailUpdate(resolvedTab, {
-                    tabId: resolvedTab.id,
-                    url: getResolvedTabUrl(resolvedTab),
-                    thumbnail: thumbnailDataUrl,
-                    thumbnailStatus: 'ok',
-                    thumbnailReason: ''
-                  }).catch(() => {});
+              prepareSwitcherThumbnailDataUrl(captureResult.dataUrl).then((thumbnailDataUrl) => {
+                if (!thumbnailDataUrl || !tracker || typeof tracker.setThumbnail !== 'function') {
+                  logSwitcherThumbnailCaptureFailure(resolvedTab, 'empty-thumbnail-data', reason);
+                  resolve(false);
+                  return;
                 }
-              } else {
-                logSwitcherThumbnailCaptureFailure(resolvedTab, 'thumbnail-cache-rejected', reason);
-              }
-              resolve(Boolean(didSet));
-            }).catch(() => {
-              logSwitcherThumbnailCaptureFailure(resolvedTab, 'prepare-thumbnail-failed', reason);
-              resolve(false);
+                const didSet = tracker.setThumbnail(freshTab.id, thumbnailDataUrl, Date.now(), {
+                  url: getResolvedTabUrl(freshTab)
+                });
+                if (didSet) {
+                  schedulePersistState();
+                  if (isSwitcherCommandCaptureReason(reason)) {
+                    postTabSwitcherThumbnailUpdate(freshTab, {
+                      tabId: freshTab.id,
+                      url: getResolvedTabUrl(freshTab),
+                      thumbnail: thumbnailDataUrl,
+                      thumbnailStatus: 'ok',
+                      thumbnailReason: ''
+                    }).catch(() => {});
+                  }
+                } else {
+                  logSwitcherThumbnailCaptureFailure(resolvedTab, 'thumbnail-cache-rejected', reason);
+                }
+                resolve(Boolean(didSet));
+              }).catch(() => {
+                logSwitcherThumbnailCaptureFailure(resolvedTab, 'prepare-thumbnail-failed', reason);
+                resolve(false);
+              });
             });
           }).catch(() => {
             logSwitcherThumbnailCaptureFailure(resolvedTab, 'capture-visible-tab-failed', reason);
