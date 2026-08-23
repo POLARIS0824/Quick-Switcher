@@ -26,7 +26,7 @@
 
 - 快捷键运行时实读 `chrome.commands.getAll`，在 shortcuts 页改键后自动适应；若与 Lumno 共存，两者都注册 `Alt+Q` 会冲突，需改掉其中一个。
 - favicon 依次取 `tab.favIconUrl` → 本扩展 `_favicon` 服务 → gstatic，最终失败显示 `assets/placeholder.svg` 占位图标（换成自己的图标直接替换该文件即可）。
-- 设置（点击扩展图标）：启用开关、特殊页面切换方案（弹窗面板 / 借用相邻标签）、面板卡片数量（3–7 张）、缩略图缓存数量（12–36 张）与保留时长（2–12 小时）；偏好存 `chrome.storage.sync`，MRU 与缩略图状态存 `chrome.storage.session`，service worker 休眠后不丢。
+- 设置（点击扩展图标）：启用开关、特殊页面切换方案（弹窗面板 / 借用相邻标签）、面板卡片数量（5–10 张）、缩略图缓存数量（12–36 张）与保留时长（2–12 小时）；偏好存 `chrome.storage.sync`，MRU 与缩略图状态存 `chrome.storage.session`，service worker 休眠后不丢。
 
 ## 开发
 

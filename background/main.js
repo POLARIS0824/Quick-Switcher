@@ -26,7 +26,7 @@ const THUMBNAIL_TTL_HOURS_STORAGE_KEY = 'thumbnailTtlHours';
 const THUMBNAIL_LIMIT_CHOICES = [12, 20, 24, 36];
 const THUMBNAIL_TTL_HOUR_CHOICES = [2, 6, 12];
 const PANEL_TAB_COUNT_STORAGE_KEY = 'panelTabCount';
-const PANEL_TAB_COUNT_CHOICES = [3, 5, 7];
+const PANEL_TAB_COUNT_CHOICES = [5, 7, 10];
 const TAB_SWITCHER_STATE_STORAGE_KEY = 'state';
 const TAB_SWITCHER_EXTENSION_PAGE_PORT_NAME = 'lumno-tab-switcher-extension-page';
 // A freshly created popup window still has to load its page and connect the
@@ -314,30 +314,47 @@ function applyThumbnailSettingsToTracker() {
   }
 }
 
-function loadTabSwitcherEnabledSetting() {
+// The command that wakes this service worker can be processed before the
+// async settings read lands; expose it as an awaitable promise so the open
+// flow never computes the tab list against stale defaults.
+let switcherSettingsLoadPromise = null;
+
+function ensureSwitcherSettingsLoaded() {
+  if (switcherSettingsLoadPromise) {
+    return switcherSettingsLoadPromise;
+  }
   const storageArea = chrome && chrome.storage && chrome.storage.sync
     ? chrome.storage.sync
     : null;
   if (!storageArea || typeof storageArea.get !== 'function') {
-    return;
+    return Promise.resolve(false);
   }
-  storageArea.get([
-    ENABLED_STORAGE_KEY,
-    SPECIAL_HOST_MODE_STORAGE_KEY,
-    THUMBNAIL_LIMIT_STORAGE_KEY,
-    THUMBNAIL_TTL_HOURS_STORAGE_KEY,
-    PANEL_TAB_COUNT_STORAGE_KEY
-  ], (result) => {
-    if (chrome.runtime && chrome.runtime.lastError) {
-      return;
-    }
-    tabSwitcherEnabledCache = !result || result[ENABLED_STORAGE_KEY] !== false;
-    specialHostModeCache = normalizeSpecialHostMode(result && result[SPECIAL_HOST_MODE_STORAGE_KEY]);
-    thumbnailLimitCache = normalizeThumbnailLimitChoice(result && result[THUMBNAIL_LIMIT_STORAGE_KEY]);
-    thumbnailTtlHoursCache = normalizeThumbnailTtlHoursChoice(result && result[THUMBNAIL_TTL_HOURS_STORAGE_KEY]);
-    panelTabCountCache = normalizePanelTabCountChoice(result && result[PANEL_TAB_COUNT_STORAGE_KEY]);
-    applyThumbnailSettingsToTracker();
+  switcherSettingsLoadPromise = new Promise((resolve) => {
+    storageArea.get([
+      ENABLED_STORAGE_KEY,
+      SPECIAL_HOST_MODE_STORAGE_KEY,
+      THUMBNAIL_LIMIT_STORAGE_KEY,
+      THUMBNAIL_TTL_HOURS_STORAGE_KEY,
+      PANEL_TAB_COUNT_STORAGE_KEY
+    ], (result) => {
+      if (chrome.runtime && chrome.runtime.lastError) {
+        resolve(false);
+        return;
+      }
+      tabSwitcherEnabledCache = !result || result[ENABLED_STORAGE_KEY] !== false;
+      specialHostModeCache = normalizeSpecialHostMode(result && result[SPECIAL_HOST_MODE_STORAGE_KEY]);
+      thumbnailLimitCache = normalizeThumbnailLimitChoice(result && result[THUMBNAIL_LIMIT_STORAGE_KEY]);
+      thumbnailTtlHoursCache = normalizeThumbnailTtlHoursChoice(result && result[THUMBNAIL_TTL_HOURS_STORAGE_KEY]);
+      panelTabCountCache = normalizePanelTabCountChoice(result && result[PANEL_TAB_COUNT_STORAGE_KEY]);
+      applyThumbnailSettingsToTracker();
+      resolve(true);
+    });
   });
+  return switcherSettingsLoadPromise;
+}
+
+function loadTabSwitcherEnabledSetting() {
+  ensureSwitcherSettingsLoaded();
 }
 
 if (chrome.storage && chrome.storage.onChanged) {
@@ -1404,11 +1421,11 @@ function queryAllTabs() {
 // so every configured card count renders at full width (Chrome clamps windows
 // that would not fit on screen).
 function getSwitcherPopupWidth() {
-  if (panelTabCountCache === 3) {
-    return 760;
-  }
   if (panelTabCountCache === 7) {
     return 1500;
+  }
+  if (panelTabCountCache === 10) {
+    return 2120;
   }
   return SWITCHER_POPUP_WIDTH;
 }
@@ -1513,6 +1530,7 @@ function openSwitcherInPopupWindow(activeTab, tabList, items, context) {
 function blindSwitchToNextMostRecentTab(tab, source) {
   Promise.all([
     ensureTabSwitcherStateLoaded().catch(() => null),
+    ensureSwitcherSettingsLoaded().catch(() => null),
     queryAllTabs()
   ]).then((results) => {
     const tabQuery = results[1] || { error: 'unknown', tabs: [] };
@@ -1697,11 +1715,12 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       }
     };
     const startupStateReady = ensureTabSwitcherStateLoaded().catch(() => {});
+    const settingsReady = ensureSwitcherSettingsLoaded().catch(() => {});
     const shortcutReady = new Promise((resolve) => {
       getConfiguredTabSwitcherShortcut(resolve);
     });
     const tabQueryReady = queryAllTabs();
-    Promise.all([startupStateReady, tabQueryReady, shortcutReady, shortcutObserverReady]).then((results) => {
+    Promise.all([startupStateReady, tabQueryReady, shortcutReady, shortcutObserverReady, settingsReady]).then((results) => {
       const tabQuery = results[1] || { error: 'unknown', tabs: [] };
       const shortcut = typeof results[2] === 'string' && results[2]
         ? results[2]
