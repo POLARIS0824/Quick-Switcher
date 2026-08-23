@@ -153,6 +153,36 @@ test('url changes invalidate the cached thumbnail', () => {
   assert.equal(state.dataUrl, '');
 });
 
+test('reconfigure enforces the new thumbnail limit immediately', () => {
+  const tracker = createTracker({ thumbnailLimit: 3, thumbnailTtlMs: 6 * 60 * 60 * 1000 });
+  const now = Date.now();
+  for (let id = 1; id <= 3; id += 1) {
+    tracker.recordTab(makeTab(id, `https://a.example.com/${id}`));
+    assert.equal(
+      tracker.setThumbnail(id, 'data:image/webp;base64,AAAA', now + id, { url: `https://a.example.com/${id}` }),
+      true
+    );
+  }
+  assert.equal(tracker.exportState().thumbnails.length, 3);
+  assert.equal(tracker.reconfigure({ thumbnailLimit: 1 }), true);
+  const thumbnails = tracker.exportState().thumbnails;
+  assert.equal(thumbnails.length, 1);
+  assert.equal(thumbnails[0].tabId, 3);
+  assert.equal(tracker.reconfigure({ thumbnailLimit: 1 }), false);
+});
+
+test('reconfigure applies the new thumbnail ttl on next read', () => {
+  const tracker = createTracker({ thumbnailTtlMs: 6 * 60 * 60 * 1000 });
+  tracker.recordTab(makeTab(1, 'https://a.example.com/1'));
+  const threeHoursAgo = Date.now() - (3 * 60 * 60 * 1000);
+  assert.equal(
+    tracker.setThumbnail(1, 'data:image/webp;base64,AAAA', threeHoursAgo, { url: 'https://a.example.com/1' }),
+    true
+  );
+  assert.equal(tracker.reconfigure({ thumbnailTtlMs: 30 * 60 * 1000 }), true);
+  assert.equal(tracker.getThumbnailState(1, 'https://a.example.com/1').status, 'missing');
+});
+
 test('defaultShouldIncludeTab accepts only http/https pages', () => {
   assert.equal(RECENT_TAB_SWITCHER.defaultShouldIncludeTab(makeTab(1, 'https://a.example.com/')), true);
   assert.equal(RECENT_TAB_SWITCHER.defaultShouldIncludeTab(makeTab(2, 'http://b.example.com/')), true);

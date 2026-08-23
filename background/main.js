@@ -21,6 +21,10 @@ const ENABLED_STORAGE_KEY = 'enabled';
 const SPECIAL_HOST_MODE_STORAGE_KEY = 'specialHostMode';
 const SPECIAL_HOST_MODE_POPUP = 'popup';
 const SPECIAL_HOST_MODE_BORROW = 'borrow';
+const THUMBNAIL_LIMIT_STORAGE_KEY = 'thumbnailLimit';
+const THUMBNAIL_TTL_HOURS_STORAGE_KEY = 'thumbnailTtlHours';
+const THUMBNAIL_LIMIT_CHOICES = [12, 20, 24, 36];
+const THUMBNAIL_TTL_HOUR_CHOICES = [2, 6, 12];
 const TAB_SWITCHER_STATE_STORAGE_KEY = 'state';
 const TAB_SWITCHER_EXTENSION_PAGE_PORT_NAME = 'lumno-tab-switcher-extension-page';
 // A freshly created popup window still has to load its page and connect the
@@ -42,6 +46,8 @@ const TAB_SWITCHER_THUMBNAIL_PERSIST_DEBOUNCE_MS = 350;
 
 let tabSwitcherEnabledCache = true;
 let specialHostModeCache = SPECIAL_HOST_MODE_POPUP;
+let thumbnailLimitCache = TAB_SWITCHER_THUMBNAIL_LIMIT;
+let thumbnailTtlHoursCache = TAB_SWITCHER_THUMBNAIL_TTL_MS / (1000 * 60 * 60);
 const tabSwitcherExtensionPagePortsByTabId = new Map();
 const tabSwitcherOpeningByWindowKey = new Map();
 const tabSwitcherHostTabIdByWindowId = new Map();
@@ -277,6 +283,29 @@ function normalizeSpecialHostMode(value) {
   return value === SPECIAL_HOST_MODE_BORROW ? SPECIAL_HOST_MODE_BORROW : SPECIAL_HOST_MODE_POPUP;
 }
 
+function normalizeThumbnailLimitChoice(value) {
+  const limit = Number(value);
+  return THUMBNAIL_LIMIT_CHOICES.includes(limit) ? limit : TAB_SWITCHER_THUMBNAIL_LIMIT;
+}
+
+function normalizeThumbnailTtlHoursChoice(value) {
+  const hours = Number(value);
+  return THUMBNAIL_TTL_HOUR_CHOICES.includes(hours)
+    ? hours
+    : TAB_SWITCHER_THUMBNAIL_TTL_MS / (1000 * 60 * 60);
+}
+
+function applyThumbnailSettingsToTracker() {
+  if (recentTabTracker && typeof recentTabTracker.reconfigure === 'function') {
+    if (recentTabTracker.reconfigure({
+      thumbnailLimit: thumbnailLimitCache,
+      thumbnailTtlMs: thumbnailTtlHoursCache * 60 * 60 * 1000
+    })) {
+      schedulePersistTabSwitcherState();
+    }
+  }
+}
+
 function loadTabSwitcherEnabledSetting() {
   const storageArea = chrome && chrome.storage && chrome.storage.sync
     ? chrome.storage.sync
@@ -284,12 +313,20 @@ function loadTabSwitcherEnabledSetting() {
   if (!storageArea || typeof storageArea.get !== 'function') {
     return;
   }
-  storageArea.get([ENABLED_STORAGE_KEY, SPECIAL_HOST_MODE_STORAGE_KEY], (result) => {
+  storageArea.get([
+    ENABLED_STORAGE_KEY,
+    SPECIAL_HOST_MODE_STORAGE_KEY,
+    THUMBNAIL_LIMIT_STORAGE_KEY,
+    THUMBNAIL_TTL_HOURS_STORAGE_KEY
+  ], (result) => {
     if (chrome.runtime && chrome.runtime.lastError) {
       return;
     }
     tabSwitcherEnabledCache = !result || result[ENABLED_STORAGE_KEY] !== false;
     specialHostModeCache = normalizeSpecialHostMode(result && result[SPECIAL_HOST_MODE_STORAGE_KEY]);
+    thumbnailLimitCache = normalizeThumbnailLimitChoice(result && result[THUMBNAIL_LIMIT_STORAGE_KEY]);
+    thumbnailTtlHoursCache = normalizeThumbnailTtlHoursChoice(result && result[THUMBNAIL_TTL_HOURS_STORAGE_KEY]);
+    applyThumbnailSettingsToTracker();
   });
 }
 
@@ -303,6 +340,14 @@ if (chrome.storage && chrome.storage.onChanged) {
     }
     if (changes[SPECIAL_HOST_MODE_STORAGE_KEY]) {
       specialHostModeCache = normalizeSpecialHostMode(changes[SPECIAL_HOST_MODE_STORAGE_KEY].newValue);
+    }
+    if (changes[THUMBNAIL_LIMIT_STORAGE_KEY]) {
+      thumbnailLimitCache = normalizeThumbnailLimitChoice(changes[THUMBNAIL_LIMIT_STORAGE_KEY].newValue);
+      applyThumbnailSettingsToTracker();
+    }
+    if (changes[THUMBNAIL_TTL_HOURS_STORAGE_KEY]) {
+      thumbnailTtlHoursCache = normalizeThumbnailTtlHoursChoice(changes[THUMBNAIL_TTL_HOURS_STORAGE_KEY].newValue);
+      applyThumbnailSettingsToTracker();
     }
   });
 }

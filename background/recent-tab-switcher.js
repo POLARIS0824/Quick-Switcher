@@ -191,8 +191,8 @@
     const settings = options && typeof options === 'object' ? options : {};
     const limit = toPositiveInteger(settings.limit, DEFAULT_LIMIT);
     const stackLimit = Math.max(limit, limit * STACK_BUFFER_MULTIPLIER);
-    const thumbnailLimit = toPositiveInteger(settings.thumbnailLimit, DEFAULT_THUMBNAIL_LIMIT);
-    const thumbnailTtlMs = Math.max(0, Number(settings.thumbnailTtlMs) || DEFAULT_THUMBNAIL_TTL_MS);
+    let thumbnailLimit = toPositiveInteger(settings.thumbnailLimit, DEFAULT_THUMBNAIL_LIMIT);
+    let thumbnailTtlMs = Math.max(0, Number(settings.thumbnailTtlMs) || DEFAULT_THUMBNAIL_TTL_MS);
     const shouldIncludeTab = typeof settings.shouldIncludeTab === 'function'
       ? settings.shouldIncludeTab
       : defaultShouldIncludeTab;
@@ -510,6 +510,19 @@
       };
     }
 
+    function reconfigure(optionsArg) {
+      const opts = optionsArg && typeof optionsArg === 'object' ? optionsArg : {};
+      const nextLimit = toPositiveInteger(opts.thumbnailLimit, thumbnailLimit);
+      const nextTtlMs = Math.max(0, Number(opts.thumbnailTtlMs) || thumbnailTtlMs);
+      const changed = nextLimit !== thumbnailLimit || nextTtlMs !== thumbnailTtlMs;
+      thumbnailLimit = nextLimit;
+      thumbnailTtlMs = nextTtlMs;
+      if (changed) {
+        pruneThumbnails(Date.now());
+      }
+      return changed;
+    }
+
     function hydrateState(state, optionsArg) {
       const opts = optionsArg && typeof optionsArg === 'object' ? optionsArg : {};
       const now = Number.isFinite(Number(opts.now)) ? Number(opts.now) : Date.now();
@@ -571,7 +584,8 @@
       getThumbnail,
       getStackSnapshot,
       exportState,
-      hydrateState
+      hydrateState,
+      reconfigure
     });
   }
 
