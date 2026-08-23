@@ -803,7 +803,7 @@
       #${PANEL_ID} {
         all: unset;
         --x-tab-switcher-accent: #2563eb;
-        --x-tab-switcher-card-width: clamp(136px, calc((100vw - 68px) / 5), 204px);
+        --x-tab-switcher-card-width: clamp(136px, calc((100vw - 68px) / var(--x-tab-count, 5)), 204px);
         --x-tab-switcher-gap: 6px;
         --x-tab-switcher-padding-panel: 10px;
         --x-tab-switcher-padding-card: 7px;
@@ -1093,7 +1093,7 @@
     const win = doc.defaultView || window;
     const tabs = (Array.isArray(options.tabs) ? options.tabs : [])
       .filter((tab) => tab && Number.isInteger(tab.id))
-      .slice(0, 5)
+      .slice(0, 7)
       .map((tab) => ({ ...tab }));
     let selectedIndex = Number(options.selectedIndex) || 0;
     let panel = null;
@@ -1353,7 +1353,7 @@
     panel.setAttribute('role', 'listbox');
     panel.setAttribute('aria-label', options.ariaLabel);
     panel.dataset.visible = 'true';
-    panel.style.setProperty('--x-tab-count', String(Math.max(1, Math.min(5, tabs.length))));
+    panel.style.setProperty('--x-tab-count', String(Math.max(1, Math.min(7, tabs.length))));
     listEl = doc.createElement('div');
     listEl.className = 'x-tab-switcher-list';
     panel.appendChild(listEl);
@@ -1374,7 +1374,7 @@
       return { ok: true, reason: 'already-open' };
     }
     const tabs = Array.isArray(context.tabs)
-      ? context.tabs.filter((tab) => tab && typeof tab.id === 'number').slice(0, 5)
+      ? context.tabs.filter((tab) => tab && typeof tab.id === 'number').slice(0, 7)
       : [];
     if (!tabs.length) {
       return { ok: false, reason: 'empty' };

@@ -5,9 +5,11 @@
   const SPECIAL_HOST_MODE_STORAGE_KEY = 'specialHostMode';
   const THUMBNAIL_LIMIT_STORAGE_KEY = 'thumbnailLimit';
   const THUMBNAIL_TTL_HOURS_STORAGE_KEY = 'thumbnailTtlHours';
+  const PANEL_TAB_COUNT_STORAGE_KEY = 'panelTabCount';
   const DEFAULT_SPECIAL_HOST_MODE = 'popup';
   const DEFAULT_THUMBNAIL_LIMIT = '12';
   const DEFAULT_THUMBNAIL_TTL_HOURS = '2';
+  const DEFAULT_PANEL_TAB_COUNT = '5';
   const isZh = String(navigator.language || '').toLowerCase().indexOf('zh') === 0;
   const strings = isZh ? {
     subtitle: '按 Alt+Q 弹出最近标签切换器，松开 Alt 提交切换。',
@@ -20,6 +22,8 @@
     thumbnailLabel: '缩略图',
     thumbnailLimitLabel: '缓存数量上限',
     thumbnailTtlLabel: '保留时长',
+    panelLabel: '面板',
+    panelCountLabel: '卡片数量',
     savedLabel: '已保存',
     saveFailedLabel: '保存失败，请重试'
   } : {
@@ -33,6 +37,8 @@
     thumbnailLabel: 'Thumbnails',
     thumbnailLimitLabel: 'Cache limit',
     thumbnailTtlLabel: 'Keep for',
+    panelLabel: 'Panel',
+    panelCountLabel: 'Cards',
     savedLabel: 'Saved',
     saveFailedLabel: 'Save failed, please retry'
   };
@@ -47,6 +53,8 @@
   document.getElementById('thumbnail-label').textContent = strings.thumbnailLabel;
   document.getElementById('thumbnail-limit-label').textContent = strings.thumbnailLimitLabel;
   document.getElementById('thumbnail-ttl-label').textContent = strings.thumbnailTtlLabel;
+  document.getElementById('panel-label').textContent = strings.panelLabel;
+  document.getElementById('panel-count-label').textContent = strings.panelCountLabel;
 
   const versionEl = document.getElementById('version');
   if (chrome && chrome.runtime && typeof chrome.runtime.getManifest === 'function') {
@@ -64,6 +72,7 @@
   };
   const thumbnailLimitSelect = document.getElementById('thumbnailLimit');
   const thumbnailTtlSelect = document.getElementById('thumbnailTtlHours');
+  const panelTabCountSelect = document.getElementById('panelTabCount');
   let statusTimer = null;
 
   function showStatus(text) {
@@ -96,6 +105,7 @@
     });
     thumbnailLimitSelect.disabled = true;
     thumbnailTtlSelect.disabled = true;
+    panelTabCountSelect.disabled = true;
     return;
   }
 
@@ -103,13 +113,15 @@
     ENABLED_STORAGE_KEY,
     SPECIAL_HOST_MODE_STORAGE_KEY,
     THUMBNAIL_LIMIT_STORAGE_KEY,
-    THUMBNAIL_TTL_HOURS_STORAGE_KEY
+    THUMBNAIL_TTL_HOURS_STORAGE_KEY,
+    PANEL_TAB_COUNT_STORAGE_KEY
   ], (result) => {
     if (chrome.runtime && chrome.runtime.lastError) {
       checkbox.checked = true;
       applyMode(DEFAULT_SPECIAL_HOST_MODE);
       thumbnailLimitSelect.value = DEFAULT_THUMBNAIL_LIMIT;
       thumbnailTtlSelect.value = DEFAULT_THUMBNAIL_TTL_HOURS;
+      panelTabCountSelect.value = DEFAULT_PANEL_TAB_COUNT;
       return;
     }
     checkbox.checked = !result || result[ENABLED_STORAGE_KEY] !== false;
@@ -118,6 +130,7 @@
       : DEFAULT_SPECIAL_HOST_MODE);
     thumbnailLimitSelect.value = String(Number(result && result[THUMBNAIL_LIMIT_STORAGE_KEY]) || DEFAULT_THUMBNAIL_LIMIT);
     thumbnailTtlSelect.value = String(Number(result && result[THUMBNAIL_TTL_HOURS_STORAGE_KEY]) || DEFAULT_THUMBNAIL_TTL_HOURS);
+    panelTabCountSelect.value = String(Number(result && result[PANEL_TAB_COUNT_STORAGE_KEY]) || DEFAULT_PANEL_TAB_COUNT);
   });
 
   checkbox.addEventListener('change', () => {
@@ -148,7 +161,8 @@
 
   [
     [thumbnailLimitSelect, THUMBNAIL_LIMIT_STORAGE_KEY],
-    [thumbnailTtlSelect, THUMBNAIL_TTL_HOURS_STORAGE_KEY]
+    [thumbnailTtlSelect, THUMBNAIL_TTL_HOURS_STORAGE_KEY],
+    [panelTabCountSelect, PANEL_TAB_COUNT_STORAGE_KEY]
   ].forEach(([select, storageKey]) => {
     select.addEventListener('change', () => {
       storageArea.set({ [storageKey]: Number(select.value) }, () => {
@@ -179,6 +193,9 @@
       }
       if (changes[THUMBNAIL_TTL_HOURS_STORAGE_KEY]) {
         thumbnailTtlSelect.value = String(Number(changes[THUMBNAIL_TTL_HOURS_STORAGE_KEY].newValue) || DEFAULT_THUMBNAIL_TTL_HOURS);
+      }
+      if (changes[PANEL_TAB_COUNT_STORAGE_KEY]) {
+        panelTabCountSelect.value = String(Number(changes[PANEL_TAB_COUNT_STORAGE_KEY].newValue) || DEFAULT_PANEL_TAB_COUNT);
       }
     });
   }

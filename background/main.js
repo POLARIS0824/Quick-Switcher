@@ -25,6 +25,8 @@ const THUMBNAIL_LIMIT_STORAGE_KEY = 'thumbnailLimit';
 const THUMBNAIL_TTL_HOURS_STORAGE_KEY = 'thumbnailTtlHours';
 const THUMBNAIL_LIMIT_CHOICES = [12, 20, 24, 36];
 const THUMBNAIL_TTL_HOUR_CHOICES = [2, 6, 12];
+const PANEL_TAB_COUNT_STORAGE_KEY = 'panelTabCount';
+const PANEL_TAB_COUNT_CHOICES = [3, 5, 7];
 const TAB_SWITCHER_STATE_STORAGE_KEY = 'state';
 const TAB_SWITCHER_EXTENSION_PAGE_PORT_NAME = 'lumno-tab-switcher-extension-page';
 // A freshly created popup window still has to load its page and connect the
@@ -48,6 +50,7 @@ let tabSwitcherEnabledCache = true;
 let specialHostModeCache = SPECIAL_HOST_MODE_POPUP;
 let thumbnailLimitCache = TAB_SWITCHER_THUMBNAIL_LIMIT;
 let thumbnailTtlHoursCache = TAB_SWITCHER_THUMBNAIL_TTL_MS / (1000 * 60 * 60);
+let panelTabCountCache = TAB_SWITCHER_LIMIT;
 const tabSwitcherExtensionPagePortsByTabId = new Map();
 const tabSwitcherOpeningByWindowKey = new Map();
 const tabSwitcherHostTabIdByWindowId = new Map();
@@ -295,6 +298,11 @@ function normalizeThumbnailTtlHoursChoice(value) {
     : TAB_SWITCHER_THUMBNAIL_TTL_MS / (1000 * 60 * 60);
 }
 
+function normalizePanelTabCountChoice(value) {
+  const count = Number(value);
+  return PANEL_TAB_COUNT_CHOICES.includes(count) ? count : TAB_SWITCHER_LIMIT;
+}
+
 function applyThumbnailSettingsToTracker() {
   if (recentTabTracker && typeof recentTabTracker.reconfigure === 'function') {
     if (recentTabTracker.reconfigure({
@@ -317,7 +325,8 @@ function loadTabSwitcherEnabledSetting() {
     ENABLED_STORAGE_KEY,
     SPECIAL_HOST_MODE_STORAGE_KEY,
     THUMBNAIL_LIMIT_STORAGE_KEY,
-    THUMBNAIL_TTL_HOURS_STORAGE_KEY
+    THUMBNAIL_TTL_HOURS_STORAGE_KEY,
+    PANEL_TAB_COUNT_STORAGE_KEY
   ], (result) => {
     if (chrome.runtime && chrome.runtime.lastError) {
       return;
@@ -326,6 +335,7 @@ function loadTabSwitcherEnabledSetting() {
     specialHostModeCache = normalizeSpecialHostMode(result && result[SPECIAL_HOST_MODE_STORAGE_KEY]);
     thumbnailLimitCache = normalizeThumbnailLimitChoice(result && result[THUMBNAIL_LIMIT_STORAGE_KEY]);
     thumbnailTtlHoursCache = normalizeThumbnailTtlHoursChoice(result && result[THUMBNAIL_TTL_HOURS_STORAGE_KEY]);
+    panelTabCountCache = normalizePanelTabCountChoice(result && result[PANEL_TAB_COUNT_STORAGE_KEY]);
     applyThumbnailSettingsToTracker();
   });
 }
@@ -348,6 +358,9 @@ if (chrome.storage && chrome.storage.onChanged) {
     if (changes[THUMBNAIL_TTL_HOURS_STORAGE_KEY]) {
       thumbnailTtlHoursCache = normalizeThumbnailTtlHoursChoice(changes[THUMBNAIL_TTL_HOURS_STORAGE_KEY].newValue);
       applyThumbnailSettingsToTracker();
+    }
+    if (changes[PANEL_TAB_COUNT_STORAGE_KEY]) {
+      panelTabCountCache = normalizePanelTabCountChoice(changes[PANEL_TAB_COUNT_STORAGE_KEY].newValue);
     }
   });
 }
@@ -1012,14 +1025,14 @@ function getRecentTabsForSwitcher(tabList, currentTabId) {
     .filter(shouldTrackSwitcherTab);
   if (recentTabTracker && typeof recentTabTracker.getRecentTabs === 'function') {
     return recentTabTracker
-      .getRecentTabs(normalizedTabs, { limit: TAB_SWITCHER_LIMIT })
+      .getRecentTabs(normalizedTabs, { limit: panelTabCountCache })
       .map((tab) => normalizeSwitcherTabForPayload(tab, currentTabId))
       .filter(Boolean);
   }
   return normalizedTabs
     .slice()
     .sort((a, b) => (Number(b.lastAccessed) || 0) - (Number(a.lastAccessed) || 0))
-    .slice(0, TAB_SWITCHER_LIMIT)
+    .slice(0, panelTabCountCache)
     .map((tab) => normalizeSwitcherTabForPayload(tab, currentTabId))
     .filter(Boolean);
 }
@@ -1387,8 +1400,22 @@ function queryAllTabs() {
   });
 }
 
+// Full-size cards are 204px wide + 6px gaps + panel padding; size the popup
+// so every configured card count renders at full width (Chrome clamps windows
+// that would not fit on screen).
+function getSwitcherPopupWidth() {
+  if (panelTabCountCache === 3) {
+    return 760;
+  }
+  if (panelTabCountCache === 7) {
+    return 1500;
+  }
+  return SWITCHER_POPUP_WIDTH;
+}
+
 function computeSwitcherPopupBounds(baseWindow) {
-  const fallback = { left: 120, top: 160, width: SWITCHER_POPUP_WIDTH, height: SWITCHER_POPUP_HEIGHT };
+  const popupWidth = getSwitcherPopupWidth();
+  const fallback = { left: 120, top: 160, width: popupWidth, height: SWITCHER_POPUP_HEIGHT };
   const baseLeft = Number(baseWindow && baseWindow.left);
   const baseTop = Number(baseWindow && baseWindow.top);
   const baseWidth = Number(baseWindow && baseWindow.width);
@@ -1397,12 +1424,12 @@ function computeSwitcherPopupBounds(baseWindow) {
       !Number.isFinite(baseWidth) || !Number.isFinite(baseHeight) || baseWidth <= 0) {
     return fallback;
   }
-  const left = Math.round(baseLeft + Math.max(0, (baseWidth - SWITCHER_POPUP_WIDTH) / 2));
+  const left = Math.round(baseLeft + Math.max(0, (baseWidth - popupWidth) / 2));
   // Center the popup on the browser window's content area, where the in-page
   // panel sits (viewport vertical center); +44 approximates half the combined
   // tab-strip + toolbar height, which the extension API cannot measure.
   const top = Math.round(baseTop + Math.max(0, (baseHeight - SWITCHER_POPUP_HEIGHT) / 2) + 44);
-  return { left, top, width: SWITCHER_POPUP_WIDTH, height: SWITCHER_POPUP_HEIGHT };
+  return { left, top, width: popupWidth, height: SWITCHER_POPUP_HEIGHT };
 }
 
 function closeSwitcherPopupWindow(senderTab) {
