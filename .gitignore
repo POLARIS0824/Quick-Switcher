@@ -1,0 +1,23 @@
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Node (tests only; the extension itself has no toolchain)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test coverage output (node --test --experimental-test-coverage)
+coverage/
+
+# Packed extension artifacts
+*.zip
+*.crx
