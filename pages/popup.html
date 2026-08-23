@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>QuickSwitcher</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body {
+      width: 300px;
+      margin: 0;
+      padding: 14px 16px 12px;
+      font: 13px/1.5 system-ui, "Segoe UI", -apple-system, sans-serif;
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 15px;
+    }
+    .subtitle {
+      margin: 0 0 14px;
+      min-height: 16px;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .setting {
+      margin: 0 0 14px;
+    }
+    .setting > .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+    .setting > .row + .options {
+      margin-top: 8px;
+    }
+    .options {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .option {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 8px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .option[data-selected="true"] {
+      border-color: #2563eb;
+      background: rgba(37, 99, 235, 0.08);
+    }
+    .option input {
+      margin: 2px 0 0;
+      accent-color: #2563eb;
+    }
+    .option .text {
+      display: block;
+    }
+    .option .text strong {
+      display: block;
+      font-size: 13px;
+    }
+    .option .text span {
+      display: block;
+      margin-top: 1px;
+      font-size: 12px;
+      font-weight: 400;
+      color: #64748b;
+    }
+    .status {
+      min-height: 16px;
+      margin: 0;
+      font-size: 12px;
+      color: #2563eb;
+    }
+    @media (prefers-color-scheme: dark) {
+      .subtitle,
+      .option .text span {
+        color: #94a3b8;
+      }
+      .option {
+        border-color: #334155;
+      }
+      .option[data-selected="true"] {
+        border-color: #3b82f6;
+        background: rgba(59, 130, 246, 0.12);
+      }
+      .status {
+        color: #60a5fa;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>QuickSwitcher</h1>
+  <p class="subtitle" id="subtitle"></p>
+  <div class="setting">
+    <label class="row">
+      <input type="checkbox" id="enabled">
+      <span id="enabled-label"></span>
+    </label>
+  </div>
+  <div class="setting">
+    <div class="row" id="mode-label"></div>
+    <div class="options">
+      <label class="option" id="option-popup">
+        <input type="radio" name="specialHostMode" value="popup">
+        <span class="text">
+          <strong id="popup-title"></strong>
+          <span id="popup-desc"></span>
+        </span>
+      </label>
+      <label class="option" id="option-borrow">
+        <input type="radio" name="specialHostMode" value="borrow">
+        <span class="text">
+          <strong id="borrow-title"></strong>
+          <span id="borrow-desc"></span>
+        </span>
+      </label>
+    </div>
+  </div>
+  <p class="status" id="status"></p>
+  <script src="popup.js"></script>
+</body>
+</html>

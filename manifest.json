@@ -1,8 +1,12 @@
 {
   "manifest_version": 3,
   "name": "QuickSwitcher",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Keyboard-only Alt+Q recent tab switcher with live page thumbnails.",
+  "action": {
+    "default_title": "QuickSwitcher",
+    "default_popup": "pages/popup.html"
+  },
   "background": {
     "service_worker": "background/main.js"
   },
@@ -39,9 +43,5 @@
       "resources": [ "assets/placeholder.svg", "_favicon/*" ],
       "matches": [ "<all_urls>" ]
     }
-  ],
-  "options_ui": {
-    "page": "pages/options.html",
-    "open_in_tab": true
-  }
+  ]
 }

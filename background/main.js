@@ -18,6 +18,9 @@ const QUICK_SWITCH_THUMBNAILS = globalThis.QuickSwitchThumbnails || {};
 const SHOW_TAB_SWITCHER_COMMAND_NAME = 'show-tab-switcher';
 const FALLBACK_TAB_SWITCHER_SHORTCUT = 'Alt+Q';
 const ENABLED_STORAGE_KEY = 'enabled';
+const SPECIAL_HOST_MODE_STORAGE_KEY = 'specialHostMode';
+const SPECIAL_HOST_MODE_POPUP = 'popup';
+const SPECIAL_HOST_MODE_BORROW = 'borrow';
 const TAB_SWITCHER_STATE_STORAGE_KEY = 'state';
 const TAB_SWITCHER_EXTENSION_PAGE_PORT_NAME = 'lumno-tab-switcher-extension-page';
 // A freshly created popup window still has to load its page and connect the
@@ -38,6 +41,7 @@ const TAB_SWITCHER_THUMBNAIL_TTL_MS = 1000 * 60 * 60 * 2;
 const TAB_SWITCHER_THUMBNAIL_PERSIST_DEBOUNCE_MS = 350;
 
 let tabSwitcherEnabledCache = true;
+let specialHostModeCache = SPECIAL_HOST_MODE_POPUP;
 const tabSwitcherExtensionPagePortsByTabId = new Map();
 const tabSwitcherOpeningByWindowKey = new Map();
 const tabSwitcherHostTabIdByWindowId = new Map();
@@ -269,6 +273,10 @@ function schedulePersistTabSwitcherState() {
   }, TAB_SWITCHER_THUMBNAIL_PERSIST_DEBOUNCE_MS);
 }
 
+function normalizeSpecialHostMode(value) {
+  return value === SPECIAL_HOST_MODE_BORROW ? SPECIAL_HOST_MODE_BORROW : SPECIAL_HOST_MODE_POPUP;
+}
+
 function loadTabSwitcherEnabledSetting() {
   const storageArea = chrome && chrome.storage && chrome.storage.sync
     ? chrome.storage.sync
@@ -276,20 +284,26 @@ function loadTabSwitcherEnabledSetting() {
   if (!storageArea || typeof storageArea.get !== 'function') {
     return;
   }
-  storageArea.get([ENABLED_STORAGE_KEY], (result) => {
+  storageArea.get([ENABLED_STORAGE_KEY, SPECIAL_HOST_MODE_STORAGE_KEY], (result) => {
     if (chrome.runtime && chrome.runtime.lastError) {
       return;
     }
     tabSwitcherEnabledCache = !result || result[ENABLED_STORAGE_KEY] !== false;
+    specialHostModeCache = normalizeSpecialHostMode(result && result[SPECIAL_HOST_MODE_STORAGE_KEY]);
   });
 }
 
 if (chrome.storage && chrome.storage.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'sync' || !changes || !changes[ENABLED_STORAGE_KEY]) {
+    if (areaName !== 'sync' || !changes) {
       return;
     }
-    tabSwitcherEnabledCache = changes[ENABLED_STORAGE_KEY].newValue !== false;
+    if (changes[ENABLED_STORAGE_KEY]) {
+      tabSwitcherEnabledCache = changes[ENABLED_STORAGE_KEY].newValue !== false;
+    }
+    if (changes[SPECIAL_HOST_MODE_STORAGE_KEY]) {
+      specialHostModeCache = normalizeSpecialHostMode(changes[SPECIAL_HOST_MODE_STORAGE_KEY].newValue);
+    }
   });
 }
 
@@ -1691,6 +1705,10 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       if (canHostOnActiveTab) {
         openingHostTabId = activeTab.id;
         injectOnHost(activeTab);
+        return;
+      }
+      if (specialHostModeCache === SPECIAL_HOST_MODE_BORROW) {
+        openSwitcherOnBorrowedHost();
         return;
       }
       openSwitcherInPopupWindow(activeTab, tabList, items, {
