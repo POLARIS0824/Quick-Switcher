@@ -1646,13 +1646,21 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       // at all, fall back to a blind MRU switch.
       const canHostOnActiveTab = canHostSwitcherSurface(activeTab);
       const selectedIndex = getDefaultSwitcherSelectedIndex(items, activeTab.id);
+      const handleOpenComplete = (ok, reason) => {
+        finishOpeningAndArmShortcutRelease(ok);
+        if (ok !== true && reason === 'page-not-focused') {
+          // A native surface holds the keyboard focus (e.g. a permission
+          // prompt); the panel would be dead on arrival, so switch blind.
+          blindSwitchToNextMostRecentTab(tab, source);
+        }
+      };
       const injectOnHost = (hostTab) => {
         injectTabSwitcherOnTab(hostTab, items, {
           currentTabId: activeTab.id,
           selectedIndex,
           shortcut,
           source,
-          onOpenComplete: finishOpeningAndArmShortcutRelease
+          onOpenComplete: handleOpenComplete
         });
       };
       const openSwitcherOnBorrowedHost = () => {
