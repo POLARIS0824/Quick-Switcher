@@ -1517,15 +1517,6 @@
     host._quickswitchTabSwitcherUpdateThumbnail = function(update) {
       return tabSwitcherView.updateThumbnail(update);
     };
-    host._quickswitchTabSwitcherGetPanelMetrics = function() {
-      const rect = panel.getBoundingClientRect();
-      return Number.isFinite(rect.width) && rect.width > 0 && Number.isFinite(rect.height)
-        ? { width: rect.width, height: rect.height, count: tabs.length }
-        : null;
-    };
-    host._quickswitchTabSwitcherRelayout = function() {
-      syncSwitcherZoomCompensation();
-    };
 
     function handleExternalAdvance(event) {
       if (didRequestSwitch) {
@@ -1642,8 +1633,6 @@
       tabSwitcherView.destroy();
       delete host._quickswitchTabSwitcherUpdateThumbnail;
       delete host._quickswitchTabSwitcherCommitFromShortcutRelease;
-      delete host._quickswitchTabSwitcherGetPanelMetrics;
-      delete host._quickswitchTabSwitcherRelayout;
     };
     document.documentElement.appendChild(host);
     window.addEventListener('keydown', handleKeydown, true);

@@ -34,11 +34,15 @@ const TAB_SWITCHER_EXTENSION_PAGE_PORT_NAME = 'lumno-tab-switcher-extension-page
 const TAB_SWITCHER_EXTENSION_PAGE_PORT_WAIT_MS = 2000;
 const TAB_SWITCHER_EXTENSION_PAGE_PORT_RETRY_MS = 50;
 const TAB_SWITCHER_HOST_ID = '_quickswitch_tab_switcher_host_2026_unique_';
+// Fixed popup sizes derived from the panel geometry at full card width:
+// panel = 2*10 padding + 5*204 cards + 4*6 gaps = 1064 wide; each card row is
+// 161px (14 padding + 2 border + 106 thumb + 7 gap + 32 meta), so the panel
+// is 181 tall for one row and 348 for two. The window keeps ~16px of room on
+// every side; 1096 wide is the minimum that keeps cards at their 204px clamp.
 const SWITCHER_POPUP_HOST_URL = 'pages/switcher-host.html';
-const SWITCHER_POPUP_WIDTH = 1120;
-const SWITCHER_POPUP_HEIGHT = 240;
-const SWITCHER_POPUP_TWO_ROW_HEIGHT = 440;
-const SWITCHER_POPUP_SIZE_CACHE_KEY = 'switcherPopupSizeCache';
+const SWITCHER_POPUP_WIDTH = 1096;
+const SWITCHER_POPUP_HEIGHT = 216;
+const SWITCHER_POPUP_TWO_ROW_HEIGHT = 388;
 const KEY_OBSERVER_FILES = ['content/key-observer.js'];
 const PANEL_FILES = ['content/panel.js'];
 const TAB_SWITCHER_LIMIT = 5;
@@ -1420,41 +1424,8 @@ function queryAllTabs() {
 }
 
 // The popup keeps the 5-card width; counts above 5 wrap into a second card
-// row (7 = 5 + 2, 10 = 5 + 5), so only the height grows. Once the popup page
-// has measured a live panel it caches the exact fitted size per rendered card
-// count, so later windows are created at the right size with no visible
-// resize hop.
-let switcherPopupSizeCache = {};
-let switcherPopupSizeCachePromise = null;
-
-function ensureSwitcherPopupSizeCacheLoaded() {
-  if (switcherPopupSizeCachePromise) {
-    return switcherPopupSizeCachePromise;
-  }
-  const storageArea = chrome && chrome.storage && chrome.storage.local
-    ? chrome.storage.local
-    : null;
-  if (!storageArea || typeof storageArea.get !== 'function') {
-    return Promise.resolve(false);
-  }
-  switcherPopupSizeCachePromise = new Promise((resolve) => {
-    storageArea.get([SWITCHER_POPUP_SIZE_CACHE_KEY], (result) => {
-      const raw = result ? result[SWITCHER_POPUP_SIZE_CACHE_KEY] : null;
-      switcherPopupSizeCache = raw && typeof raw === 'object' ? raw : {};
-      resolve(true);
-    });
-  });
-  return switcherPopupSizeCachePromise;
-}
-
-function getSwitcherPopupPresetSize(tabCount) {
-  const cached = switcherPopupSizeCache[String(tabCount)];
-  const width = Number(cached && cached.width);
-  const height = Number(cached && cached.height);
-  if (Number.isFinite(width) && width >= 320 && width <= 4000 &&
-      Number.isFinite(height) && height >= 120 && height <= 4000) {
-    return { width: Math.round(width), height: Math.round(height) };
-  }
+// row (7 = 5 + 2, 10 = 5 + 5), so only the height grows.
+function getSwitcherPopupSize(tabCount) {
   return {
     width: SWITCHER_POPUP_WIDTH,
     height: tabCount > 5 ? SWITCHER_POPUP_TWO_ROW_HEIGHT : SWITCHER_POPUP_HEIGHT
@@ -1462,7 +1433,7 @@ function getSwitcherPopupPresetSize(tabCount) {
 }
 
 function computeSwitcherPopupBounds(baseWindow, tabCount) {
-  const size = getSwitcherPopupPresetSize(tabCount);
+  const size = getSwitcherPopupSize(tabCount);
   const fallback = { left: 120, top: 160, width: size.width, height: size.height };
   const baseLeft = Number(baseWindow && baseWindow.left);
   const baseTop = Number(baseWindow && baseWindow.top);
@@ -1548,20 +1519,17 @@ function openSwitcherInPopupWindow(activeTab, tabList, items, context) {
   const tabCount = Array.isArray(items)
     ? Math.max(1, Math.min(10, items.filter((item) => item && typeof item.id === 'number').length))
     : 1;
-  const createWithBounds = () => {
-    if (typeof activeTab.windowId !== 'number' || typeof chrome.windows.get !== 'function') {
+  if (typeof activeTab.windowId !== 'number' || typeof chrome.windows.get !== 'function') {
+    createPopup(computeSwitcherPopupBounds(null, tabCount));
+    return;
+  }
+  chrome.windows.get(activeTab.windowId, (baseWindow) => {
+    if (chrome.runtime && chrome.runtime.lastError) {
       createPopup(computeSwitcherPopupBounds(null, tabCount));
       return;
     }
-    chrome.windows.get(activeTab.windowId, (baseWindow) => {
-      if (chrome.runtime && chrome.runtime.lastError) {
-        createPopup(computeSwitcherPopupBounds(null, tabCount));
-        return;
-      }
-      createPopup(computeSwitcherPopupBounds(baseWindow, tabCount));
-    });
-  };
-  ensureSwitcherPopupSizeCacheLoaded().catch(() => {}).then(createWithBounds);
+    createPopup(computeSwitcherPopupBounds(baseWindow, tabCount));
+  });
 }
 
 function blindSwitchToNextMostRecentTab(tab, source) {
