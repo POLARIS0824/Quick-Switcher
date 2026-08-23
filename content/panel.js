@@ -856,10 +856,14 @@
         transform: translate3d(-50%, -50%, 0) scale(var(--x-tab-switcher-visible-scale));
       }
       .x-tab-switcher-list {
-        display: grid;
-        grid-template-columns: repeat(var(--x-tab-count, 5), var(--x-tab-switcher-card-width));
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
         gap: var(--x-tab-switcher-gap);
-        width: max-content;
+        width: calc(
+          var(--x-tab-count, 5) * var(--x-tab-switcher-card-width) +
+          (var(--x-tab-count, 5) - 1) * var(--x-tab-switcher-gap)
+        );
         max-width: 100%;
       }
       .x-tab-switcher-card {
@@ -1513,6 +1517,15 @@
     host._quickswitchTabSwitcherUpdateThumbnail = function(update) {
       return tabSwitcherView.updateThumbnail(update);
     };
+    host._quickswitchTabSwitcherGetPanelMetrics = function() {
+      const rect = panel.getBoundingClientRect();
+      return Number.isFinite(rect.width) && rect.width > 0 && Number.isFinite(rect.height)
+        ? { width: rect.width, height: rect.height }
+        : null;
+    };
+    host._quickswitchTabSwitcherRelayout = function() {
+      syncSwitcherZoomCompensation();
+    };
 
     function handleExternalAdvance(event) {
       if (didRequestSwitch) {
@@ -1629,6 +1642,8 @@
       tabSwitcherView.destroy();
       delete host._quickswitchTabSwitcherUpdateThumbnail;
       delete host._quickswitchTabSwitcherCommitFromShortcutRelease;
+      delete host._quickswitchTabSwitcherGetPanelMetrics;
+      delete host._quickswitchTabSwitcherRelayout;
     };
     document.documentElement.appendChild(host);
     window.addEventListener('keydown', handleKeydown, true);

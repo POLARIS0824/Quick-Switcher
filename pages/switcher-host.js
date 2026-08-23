@@ -6,6 +6,7 @@
   const LOST_RELEASE_COMMIT_MS = 1600;
   const BLUR_CLOSE_DELAY_MS = 120;
   const POLL_INTERVAL_MS = 200;
+  const PANEL_FIT_MARGIN_PX = 12;
 
   const loadedAt = Date.now();
   let focusedAt = Date.now();
@@ -13,6 +14,7 @@
   let sawPanelOpen = false;
   let didCloseWindow = false;
   let didAttemptLostReleaseCommit = false;
+  let didFitWindowToPanel = false;
 
   function closePopupWindow() {
     if (didCloseWindow) {
@@ -28,6 +30,46 @@
 
   function getPanelHost() {
     return document.getElementById(TAB_SWITCHER_HOST_ID);
+  }
+
+  // The window is created with a rough preset size; once the panel is live,
+  // measure its real bounds (transform included) and shrink the window to a
+  // snug fit so the popup does not look a size bigger than the panel.
+  function fitPopupWindowToPanel(panelHost) {
+    const getMetrics = panelHost._quickswitchTabSwitcherGetPanelMetrics;
+    if (typeof getMetrics !== 'function') {
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (didCloseWindow) {
+        return;
+      }
+      const metrics = getMetrics();
+      if (!metrics || !(metrics.width > 0) || !(metrics.height > 0)) {
+        didFitWindowToPanel = false;
+        return;
+      }
+      const width = Math.ceil(metrics.width + PANEL_FIT_MARGIN_PX * 2);
+      const height = Math.ceil(metrics.height + PANEL_FIT_MARGIN_PX * 2);
+      const relayout = () => {
+        if (!didCloseWindow && typeof panelHost._quickswitchTabSwitcherRelayout === 'function') {
+          panelHost._quickswitchTabSwitcherRelayout();
+        }
+      };
+      if (chrome && chrome.windows && typeof chrome.windows.update === 'function') {
+        chrome.windows.update(chrome.windows.WINDOW_ID_CURRENT, { width, height }, () => {
+          void (chrome.runtime && chrome.runtime.lastError);
+          window.setTimeout(relayout, 50);
+        });
+        return;
+      }
+      try {
+        window.resizeTo(width, height);
+      } catch (error) {
+        // Keep the preset size if the window cannot be resized.
+      }
+      window.setTimeout(relayout, 50);
+    });
   }
 
   window.addEventListener('keydown', (event) => {
@@ -60,6 +102,10 @@
     const panelHost = getPanelHost();
     if (panelHost) {
       sawPanelOpen = true;
+      if (!didFitWindowToPanel) {
+        didFitWindowToPanel = true;
+        fitPopupWindowToPanel(panelHost);
+      }
     } else if (sawPanelOpen) {
       // The in-page panel closed itself (Escape, commit, or visibility
       // retirement); the popup window must not outlive it.
