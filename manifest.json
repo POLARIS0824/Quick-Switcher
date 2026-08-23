@@ -1,11 +1,21 @@
 {
   "manifest_version": 3,
   "name": "AltQ Tab Switcher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Keyboard-only Alt+Q recent tab switcher with live page thumbnails.",
   "background": {
     "service_worker": "background/main.js"
   },
+  "content_scripts": [
+    {
+      "matches": [ "<all_urls>" ],
+      "js": [ "content/key-observer.js" ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
+    }
+  ],
   "commands": {
     "show-tab-switcher": {
       "description": "Show the recent tab switcher",
@@ -23,6 +33,12 @@
   ],
   "host_permissions": [
     "<all_urls>"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [ "assets/placeholder.svg", "_favicon/*" ],
+      "matches": [ "<all_urls>" ]
+    }
   ],
   "options_ui": {
     "page": "pages/options.html",

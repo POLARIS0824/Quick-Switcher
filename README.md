@@ -41,12 +41,14 @@
 ```
 QuickSwitch/
 ├── manifest.json            # MV3；经典（非 module）background service worker
+├── assets/
+│   └── placeholder.svg      # favicon 加载失败时的 Chrome 占位图标（可自行替换）
 ├── background/
 │   ├── main.js              # 命令入口 + 注入编排 + advance/commit 协议 + tab/window 事件源
 │   ├── recent-tab-switcher.js  # MRU tracker（从 Lumno 整体复制，零依赖 UMD）
 │   └── thumbnails.js        # 截图管线：captureVisibleTab → 320×200 WebP → 2h 缓存
 ├── content/
-│   ├── key-observer.js      # keyup 观察器（含 5 秒缓冲重放，处理极快点按竞态）
+│   ├── key-observer.js      # keyup 观察器（静态注册 + 含 5 秒缓冲重放）
 │   └── panel.js             # 面板控制器 + vanilla 卡片视图（纯键盘化）+ 抑制状态机
 ├── pages/
 │   ├── options.html/.js     # 极简设置页（启用开关）
@@ -64,8 +66,20 @@ QuickSwitch/
 - **提交链路**：页面 keyup 检测到 Alt 释放 → `notifyTabSwitcherShortcutModifierReleased` →
   后台校验释放键与快捷键修饰键一致 → 定位宿主标签 → `commitOpenTabSwitcherFromShortcutRelease`
   → 面板提交选中项（面板自身的 keyup 处理器也会直接提交，双路径幂等）。
-- **keyup 竞态兜底**：observer 持续记录最近 5 秒的 trusted keydown/keyup；armed 指令到达时
-  若发现 Alt 已在 `commandStartedAt` 前后释放过，立即补发提交通知。
+- **keyup 竞态兜底（三层观察器部署，照搬 Lumno）**：
+  ① `content/key-observer.js` 作为静态 content script 注册（`document_start`、全 frame），
+  从页面加载起就在场缓冲 trusted 按键，极速点按 Alt+Q 时 Alt 的 keyup 永不丢失；
+  ② `runtime.onInstalled` / `runtime.onStartup` 时向所有已打开标签补注入（静态注册只对
+  之后新加载的文档生效，扩展重载后旧标签需要补装）；
+  ③ command 到达时再注入一次兜底（幂等，重注入会先清理旧监听器）。
+  observer 持续记录最近 5 秒的 trusted keydown/keyup；armed 指令到达时若发现 Alt 已在
+  `commandStartedAt` 前后释放过，立即补发提交通知。
+- **防残留面板**：纯键盘面板没有"点击外部关闭"，因此当宿主标签变为不可见（被切走/窗口
+  失焦遮挡）时面板自动关闭，避免残留的僵尸面板。
+- **favicon 层级**：`tab.favIconUrl`（仅 http/https/data 安全来源）→ 本扩展 `_favicon`
+  服务（Chrome 原生 favicon 缓存，离线可用、含 chrome:// 内页图标）→ gstatic s32 →
+  面板侧 Chrome 占位图标（`assets/placeholder.svg`，加载失败再回落到内联 SVG）。
+  缩略图缺失的卡片与加载失败的图标一律显示占位符，不会出现裂图。
 - **SW 生命周期**：tracker 状态（stack + 缩略图）存 `chrome.storage.session`（不可用回退
   `local`），懒加载 + dirty-before-load 合并 + 350ms 防抖写回，service worker 被杀后状态不丢。
 - **缩略图管线**：`captureVisibleTab`(JPEG q=42) → OffscreenCanvas 居中裁剪 320×200 →
@@ -110,6 +124,14 @@ node --test
 6. `chrome://settings` 按 `Alt+Q` → 盲切一步（直接切到 MRU 下一个标签，无面板）。
 7. 在本扩展 options 页按 `Alt+Q` → 面板经 port 桥显示。
 8. 暗色/亮色页面主题正确跟随；标签缩放 ≠100% 的页面面板不错位。
+
+## 替换占位图标
+
+favicon 加载失败时显示的 Chrome 占位图标在 `assets/placeholder.svg`（当前是内置的简版
+Chrome logo 绘制）。如需换成你自己提供的 Chrome 图标：直接用你的文件**替换同名文件**即可
+（保持 SVG，或换成 PNG 后同步修改 `manifest.json` 的 `web_accessible_resources` 与
+`content/panel.js` 中的 `getFaviconPlaceholderUrl`）。面板内还有一份内联 SVG 兜底，只有
+当扩展资源本身加载失败时才会用到。
 
 ## 与 Lumno 共存
 

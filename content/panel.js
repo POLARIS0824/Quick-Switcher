@@ -189,6 +189,43 @@
       tab_switcher_favicon_alt: '站点图标'
     })
   });
+  const INLINE_PLACEHOLDER_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">'
+    + '<circle cx="48" cy="48" r="40" fill="#ea4335"/>'
+    + '<path d="M48 48 L82.64 28 A40 40 0 0 1 48 88 Z" fill="#fbbc05"/>'
+    + '<path d="M48 48 L48 88 A40 40 0 0 1 13.36 28 Z" fill="#34a853"/>'
+    + '<path d="M48 48 L82.64 28 M48 48 L48 88 M48 48 L13.36 28" stroke="#ffffff" stroke-width="4.5"/>'
+    + '<circle cx="48" cy="48" r="15" fill="#ffffff"/>'
+    + '<circle cx="48" cy="48" r="11" fill="#4285f4"/>'
+    + '</svg>';
+
+  function getFaviconPlaceholderUrl(stage) {
+    if (!stage || stage < 1) {
+      if (chromeApi && chromeApi.runtime && typeof chromeApi.runtime.getURL === 'function') {
+        try {
+          return chromeApi.runtime.getURL('assets/placeholder.svg');
+        } catch (error) {
+          // Fall through to the inline placeholder below.
+        }
+      }
+    }
+    return 'data:image/svg+xml,' + encodeURIComponent(INLINE_PLACEHOLDER_ICON_SVG);
+  }
+
+  function applyFaviconImageFallback(img) {
+    const stage = Number(img.dataset.faviconFallbackStage || '0');
+    if (stage < 1) {
+      img.dataset.faviconFallbackStage = '1';
+      img.src = getFaviconPlaceholderUrl(1);
+      return;
+    }
+    if (stage < 2) {
+      img.dataset.faviconFallbackStage = '2';
+      img.src = getFaviconPlaceholderUrl(2);
+      return;
+    }
+    img.dataset.broken = 'true';
+    img.removeAttribute('src');
+  }
   const PANEL_LOCALE = (function() {
     const language = String((typeof navigator !== 'undefined' && navigator.language) || '').toLowerCase();
     return language.indexOf('zh') === 0 ? 'zh' : 'en';
@@ -909,7 +946,8 @@
         height: 38px;
         border-radius: var(--x-tab-switcher-radius-icon);
       }
-      .x-tab-switcher-favicon[data-broken="true"] {
+      .x-tab-switcher-favicon[data-broken="true"],
+      .x-tab-switcher-title-favicon[data-broken="true"] {
         visibility: hidden;
       }
       .x-tab-switcher-meta {
@@ -1066,7 +1104,7 @@
       ? (callback) => win.requestAnimationFrame(callback)
       : (callback) => win.setTimeout(() => callback(Date.now()), 0);
 
-    function createImage(className, src, alt, kind, entering, exiting) {
+    function createImage(className, src, alt, kind, entering, exiting, usePlaceholder) {
       const img = doc.createElement('img');
       if (className) {
         img.className = className;
@@ -1086,9 +1124,19 @@
         img.dataset.exiting = 'true';
       }
       img.addEventListener('error', () => {
+        if (usePlaceholder === true) {
+          applyFaviconImageFallback(img);
+          return;
+        }
         img.dataset.broken = 'true';
         img.removeAttribute('src');
       });
+      return img;
+    }
+
+    function createPlaceholderImage(className, alt) {
+      const img = createImage(className, getFaviconPlaceholderUrl(1), alt, '', false, false, true);
+      img.dataset.faviconFallbackStage = '1';
       return img;
     }
 
@@ -1106,13 +1154,17 @@
         const fallback = doc.createElement('div');
         fallback.className = 'x-tab-switcher-fallback';
         const favicon = String(tab.favIconUrl || '');
-        if (favicon) {
-          fallback.appendChild(createImage(
+        fallback.appendChild(favicon
+          ? createImage(
             'x-tab-switcher-favicon',
             favicon,
+            options.getMessage('tab_switcher_favicon_alt', 'Site icon'),
+            '', false, false, true
+          )
+          : createPlaceholderImage(
+            'x-tab-switcher-favicon',
             options.getMessage('tab_switcher_favicon_alt', 'Site icon')
           ));
-        }
         thumbEl.appendChild(fallback);
       }
     }
@@ -1155,11 +1207,9 @@
       const nameRow = doc.createElement('div');
       nameRow.className = 'x-tab-switcher-name-row';
       if (favicon) {
-        nameRow.appendChild(createImage('x-tab-switcher-title-favicon', favicon, ''));
+        nameRow.appendChild(createImage('x-tab-switcher-title-favicon', favicon, '', '', false, false, true));
       } else {
-        const placeholder = doc.createElement('span');
-        placeholder.className = 'x-tab-switcher-title-favicon';
-        nameRow.appendChild(placeholder);
+        nameRow.appendChild(createPlaceholderImage('x-tab-switcher-title-favicon', ''));
       }
       const name = doc.createElement('div');
       name.className = 'x-tab-switcher-name';
@@ -1537,6 +1587,14 @@
       }
     }
 
+    function handleDocumentVisibilityChange() {
+      // The switcher is transient on the focused tab; a keyboard-only panel
+      // has no outside-click close, so retire it when its host tab is hidden.
+      if (document.visibilityState === 'hidden') {
+        close();
+      }
+    }
+
     const switcherVisualViewport = window.visualViewport && typeof window.visualViewport.addEventListener === 'function'
       ? window.visualViewport
       : null;
@@ -1547,6 +1605,7 @@
         switcherVisualViewport.removeEventListener('resize', syncSwitcherZoomCompensation);
         switcherVisualViewport.removeEventListener('scroll', syncSwitcherZoomCompensation);
       }
+      document.removeEventListener('visibilitychange', handleDocumentVisibilityChange, true);
       document.removeEventListener(TAB_SWITCHER_ADVANCE_EVENT, handleExternalAdvance, true);
       switcherThemeController.destroy();
       tabSwitcherView.destroy();
@@ -1556,6 +1615,7 @@
     document.documentElement.appendChild(host);
     window.addEventListener('keydown', handleKeydown, true);
     window.addEventListener('keyup', handleKeyup, true);
+    document.addEventListener('visibilitychange', handleDocumentVisibilityChange, true);
     if (switcherVisualViewport) {
       switcherVisualViewport.addEventListener('resize', syncSwitcherZoomCompensation, { passive: true });
       switcherVisualViewport.addEventListener('scroll', syncSwitcherZoomCompensation, { passive: true });

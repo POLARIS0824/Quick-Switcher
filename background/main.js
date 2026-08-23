@@ -888,12 +888,25 @@ function getGstaticFaviconUrl(pageUrl) {
   return `https://www.google.com/s2/favicons?sz=32&domain_url=${encodeURIComponent(resolved)}`;
 }
 
+function getOwnFaviconServiceUrl(pageUrl) {
+  const resolved = String(pageUrl || '').trim();
+  if (!resolved || !chrome || !chrome.runtime || typeof chrome.runtime.getURL !== 'function') {
+    return '';
+  }
+  return `${chrome.runtime.getURL('_favicon/')}?pageUrl=${encodeURIComponent(resolved)}&size=32`;
+}
+
 function buildSwitcherTabFavicon(tab, url) {
+  const resolved = String(url || getResolvedTabUrl(tab) || '').trim();
   const direct = tab && typeof tab.favIconUrl === 'string' ? tab.favIconUrl.trim() : '';
   if (isPageVisibleSafeFaviconUrl(direct)) {
     return direct;
   }
-  return getGstaticFaviconUrl(String(url || getResolvedTabUrl(tab) || ''));
+  const ownService = getOwnFaviconServiceUrl(resolved);
+  if (ownService) {
+    return ownService;
+  }
+  return getGstaticFaviconUrl(resolved);
 }
 
 function normalizeSwitcherTabForPayload(tab, currentTabId) {
@@ -990,6 +1003,20 @@ function prepareShortcutKeyObserver(tab) {
     } catch (error) {
       resolve(false);
     }
+  });
+}
+
+function prepareShortcutKeyObserversInOpenTabs() {
+  if (!chrome || !chrome.tabs || typeof chrome.tabs.query !== 'function') {
+    return;
+  }
+  chrome.tabs.query({}, (tabs) => {
+    if (chrome.runtime && chrome.runtime.lastError) {
+      return;
+    }
+    (Array.isArray(tabs) ? tabs : []).forEach((tab) => {
+      prepareShortcutKeyObserver(tab);
+    });
   });
 }
 
@@ -1661,3 +1688,20 @@ if (chrome && chrome.tabs && chrome.tabs.onUpdated) {
     }
   });
 }
+
+if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
+  chrome.runtime.onInstalled.addListener(() => {
+    // Static manifest content scripts only apply to future document loads. A
+    // development-extension reload keeps existing tabs alive, so install the
+    // shortcut observer there now instead of waiting for the next shortcut.
+    prepareShortcutKeyObserversInOpenTabs();
+  });
+}
+
+if (chrome && chrome.runtime && chrome.runtime.onStartup) {
+  chrome.runtime.onStartup.addListener(() => {
+    prepareShortcutKeyObserversInOpenTabs();
+  });
+}
+
+ensureTabSwitcherStateLoaded().catch(() => {});
