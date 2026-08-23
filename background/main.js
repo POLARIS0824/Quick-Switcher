@@ -1559,6 +1559,14 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
         blindSwitchToNextMostRecentTab(tab, source);
         return;
       }
+      const handleOpenComplete = (ok, reason) => {
+        finishOpeningAndArmShortcutRelease(ok);
+        if (ok !== true && reason === 'page-not-focused') {
+          // A native surface holds the keyboard focus (e.g. a permission
+          // prompt); the panel would be dead on arrival, so switch blind.
+          blindSwitchToNextMostRecentTab(tab, source);
+        }
+      };
       openingHostTabId = hostTab.id;
       if (hostTab.id !== activeTab.id) {
         focusWindowAndActivateTab(hostTab.id, hostTab.windowId, (result) => {
@@ -1571,7 +1579,7 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
             selectedIndex,
             shortcut,
             source,
-            onOpenComplete: finishOpeningAndArmShortcutRelease
+            onOpenComplete: handleOpenComplete
           });
         });
         return;
@@ -1581,7 +1589,7 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
         selectedIndex,
         shortcut,
         source,
-        onOpenComplete: finishOpeningAndArmShortcutRelease
+        onOpenComplete: handleOpenComplete
       });
     }).catch(() => {
       finishOpening();

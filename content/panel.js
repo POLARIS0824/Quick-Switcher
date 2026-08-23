@@ -1364,6 +1364,12 @@
 
   window._quickswitch_toggleTabSwitcher_2026_unique_ = function(rawContext) {
     const context = rawContext && typeof rawContext === 'object' ? rawContext : {};
+    if (!document.hasFocus()) {
+      // A native surface (permission prompt, omnibox, another app) holds the
+      // keyboard focus; the page would never see the modifier release, so a
+      // keyboard-only panel would be dead on arrival.
+      return { ok: false, reason: 'page-not-focused' };
+    }
     if (handleExistingSwitcher(context)) {
       return { ok: true, reason: 'already-open' };
     }
@@ -1595,12 +1601,22 @@
       }
     }
 
+    function handleWindowBlur() {
+      // Once keyboard focus moves to a native surface (a permission prompt,
+      // the omnibox, another app), the page can never see the modifier
+      // release; retire instead of hanging.
+      if (!didRequestSwitch) {
+        close();
+      }
+    }
+
     const switcherVisualViewport = window.visualViewport && typeof window.visualViewport.addEventListener === 'function'
       ? window.visualViewport
       : null;
     host._quickswitchTabSwitcherCleanup = function() {
       window.removeEventListener('keydown', handleKeydown, true);
       window.removeEventListener('keyup', handleKeyup, true);
+      window.removeEventListener('blur', handleWindowBlur, true);
       if (switcherVisualViewport && typeof switcherVisualViewport.removeEventListener === 'function') {
         switcherVisualViewport.removeEventListener('resize', syncSwitcherZoomCompensation);
         switcherVisualViewport.removeEventListener('scroll', syncSwitcherZoomCompensation);
@@ -1615,6 +1631,7 @@
     document.documentElement.appendChild(host);
     window.addEventListener('keydown', handleKeydown, true);
     window.addEventListener('keyup', handleKeyup, true);
+    window.addEventListener('blur', handleWindowBlur, true);
     document.addEventListener('visibilitychange', handleDocumentVisibilityChange, true);
     if (switcherVisualViewport) {
       switcherVisualViewport.addEventListener('resize', syncSwitcherZoomCompensation, { passive: true });
