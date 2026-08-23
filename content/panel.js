@@ -1398,6 +1398,12 @@
       // keyboard-only panel would be dead on arrival.
       return { ok: false, reason: 'page-not-focused' };
     }
+    if (document.fullscreenElement) {
+      // The fullscreen element replaces the whole viewport, so an overlay
+      // attached to <html> would never be painted. Route to the dedicated
+      // popup window instead — the video keeps playing undisturbed.
+      return { ok: false, reason: 'page-fullscreen' };
+    }
     if (handleExistingSwitcher(context)) {
       return { ok: true, reason: 'already-open' };
     }

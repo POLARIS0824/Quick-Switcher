@@ -1773,7 +1773,23 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       const selectedIndex = getDefaultSwitcherSelectedIndex(items, activeTab.id);
       const handleOpenComplete = (ok, reason) => {
         finishOpeningAndArmShortcutRelease(ok);
-        if (ok !== true && reason === 'page-not-focused') {
+        if (ok === true) {
+          return;
+        }
+        if (reason === 'page-fullscreen') {
+          // The page is showing a fullscreen element, so an in-page overlay
+          // would be invisible; host the panel in the popup window instead,
+          // leaving the fullscreen video playing undisturbed.
+          openSwitcherInPopupWindow(activeTab, tabList, items, {
+            onHostReady: (popupTab) => {
+              openingHostTabId = popupTab.id;
+              injectOnHost(popupTab);
+            },
+            onUnavailable: openSwitcherOnBorrowedHost
+          });
+          return;
+        }
+        if (reason === 'page-not-focused') {
           // A native surface holds the keyboard focus (e.g. a permission
           // prompt); the panel would be dead on arrival, so switch blind.
           blindSwitchToNextMostRecentTab(tab, source);
