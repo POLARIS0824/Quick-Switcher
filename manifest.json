@@ -5,7 +5,11 @@
   "description": "Keyboard-only Alt+Q recent tab switcher with live page thumbnails.",
   "action": {
     "default_title": "QuickSwitcher",
-    "default_popup": "pages/popup.html"
+    "default_popup": "pages/popup.html",
+    "default_icon": "assets/icon-park--exchange-four.png"
+  },
+  "icons": {
+    "48": "assets/icon-park--exchange-four.png"
   },
   "background": {
     "service_worker": "background/main.js"
