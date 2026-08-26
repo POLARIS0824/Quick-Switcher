@@ -1887,6 +1887,17 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
       );
       return true;
     }
+    case 'closeTab': {
+      if (typeof request.tabId !== 'number') {
+        sendResponse({ ok: false, reason: 'invalid-tab' });
+        return;
+      }
+      chrome.tabs.remove(request.tabId, () => {
+        void (chrome.runtime && chrome.runtime.lastError);
+        sendResponse({ ok: true });
+      });
+      return true;
+    }
     case 'reportTabVisible': {
       const senderTab = sender && sender.tab ? sender.tab : null;
       if (senderTab && typeof senderTab.id === 'number') {

@@ -13,6 +13,25 @@
     return ((normalized % length) + length) % length;
   }
 
+  function nextSelectedIndexAfterRemoval(removedIndex, selectedIndex, length) {
+    // `length` is the list size after the removal.
+    if (length <= 0) {
+      return 0;
+    }
+    const removed = Math.trunc(Number(removedIndex));
+    const selected = Math.trunc(Number(selectedIndex));
+    if (!Number.isFinite(removed) || !Number.isFinite(selected)) {
+      return clampSelectedIndex(selected, length);
+    }
+    if (removed < selected) {
+      return clampSelectedIndex(selected - 1, length);
+    }
+    if (removed === selected) {
+      return Math.max(0, Math.min(selected, length - 1));
+    }
+    return clampSelectedIndex(selected, length);
+  }
+
   function normalizeAdvanceOffset(value) {
     const offset = Math.trunc(Number(value));
     return Number.isFinite(offset) && offset !== 0 ? offset : 1;
@@ -148,6 +167,7 @@
 
   return Object.freeze({
     clampSelectedIndex,
+    nextSelectedIndexAfterRemoval,
     normalizeAdvanceOffset,
     normalizeTabSwitcherShortcutKey,
     normalizeTabSwitcherShortcutCode,
@@ -170,6 +190,19 @@
   const TAB_SWITCHER_ADVANCE_EVENT = '_quickswitch_tab_switcher_advance_command_2026_unique_';
   const PANEL_CORE = globalThis.QuickSwitchPanelCore || {};
   const clampSelectedIndex = PANEL_CORE.clampSelectedIndex || ((index, length) => (length <= 0 ? 0 : Math.max(0, Math.min(length - 1, Number(index) || 0))));
+  const nextSelectedIndexAfterRemoval = PANEL_CORE.nextSelectedIndexAfterRemoval ||
+    ((removedIndex, selectedIndex, length) => {
+      if (length <= 0) {
+        return 0;
+      }
+      if (removedIndex < selectedIndex) {
+        return clampSelectedIndex(selectedIndex - 1, length);
+      }
+      if (removedIndex === selectedIndex) {
+        return Math.max(0, Math.min(selectedIndex, length - 1));
+      }
+      return clampSelectedIndex(selectedIndex, length);
+    });
   const normalizeAdvanceOffset = PANEL_CORE.normalizeAdvanceOffset || (() => 1);
   const parseTabSwitcherShortcut = PANEL_CORE.parseTabSwitcherShortcut || (() => ({ triggerKey: 'q', commitModifierEventKey: 'Alt', commitModifierFlag: 'altKey' }));
   const isTabSwitcherShortcutTriggerEvent = PANEL_CORE.isTabSwitcherShortcutTriggerEvent || (() => false);
@@ -1217,6 +1250,19 @@
           options.onCardSelect(index);
         });
       }
+      if (typeof options.onCardClose === 'function') {
+        button.addEventListener('contextmenu', (event) => {
+          if (!event || event.isTrusted !== true) {
+            return;
+          }
+          event.preventDefault();
+          if (typeof event.stopImmediatePropagation === 'function') {
+            event.stopImmediatePropagation();
+          }
+          event.stopPropagation();
+          options.onCardClose(index);
+        });
+      }
 
       const thumb = doc.createElement('div');
       thumb.className = 'x-tab-switcher-thumb';
@@ -1289,6 +1335,15 @@
       updateSelection(index) {
         selectedIndex = Number(index) || 0;
         applySelection();
+      },
+      removeTabAt(index) {
+        const position = Math.trunc(Number(index));
+        if (!Number.isInteger(position) || position < 0 || position >= tabs.length) {
+          return false;
+        }
+        tabs.splice(position, 1);
+        renderCards();
+        return true;
       },
       updateThumbnail(update) {
         const tabId = Number(update && update.tabId);
@@ -1450,6 +1505,9 @@
         selectedIndex = clampSelectedIndex(index, tabs.length);
         renderSelection();
         switchToSelected();
+      },
+      onCardClose: (index) => {
+        closeTabAtIndex(index);
       }
     });
     const panel = tabSwitcherView.panel;
@@ -1533,6 +1591,43 @@
       renderSelection();
     }
 
+    function closeTabAtIndex(index) {
+      if (didRequestSwitch) {
+        return false;
+      }
+      const position = Math.trunc(Number(index));
+      if (!Number.isInteger(position) || position < 0 || position >= tabs.length) {
+        return false;
+      }
+      const target = tabs[position];
+      if (!target || typeof target.id !== 'number') {
+        return false;
+      }
+      // Send before mutating local state: in the page-overlay mode, closing
+      // the host tab tears this script down mid-call.
+      if (chromeApi && chromeApi.runtime && typeof chromeApi.runtime.sendMessage === 'function') {
+        try {
+          chromeApi.runtime.sendMessage({
+            action: 'closeTab',
+            tabId: target.id
+          }, () => {
+            void (chromeApi.runtime && chromeApi.runtime.lastError);
+          });
+        } catch (error) {
+          // A stale extension context means the panel is going away anyway.
+        }
+      }
+      tabs.splice(position, 1);
+      tabSwitcherView.removeTabAt(position);
+      selectedIndex = nextSelectedIndexAfterRemoval(position, selectedIndex, tabs.length);
+      if (!tabs.length) {
+        close();
+        return true;
+      }
+      renderSelection();
+      return true;
+    }
+
     function advanceSelectionFromShortcut(offset) {
       if (shortcutSuppressor) {
         shortcutSuppressor.markExternalAdvance();
@@ -1603,6 +1698,11 @@
       if (event.key === 'Enter') {
         stopHandledKeyEvent(event);
         switchToSelected();
+        return;
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        stopHandledKeyEvent(event);
+        closeTabAtIndex(selectedIndex);
         return;
       }
       if (event.key === 'Escape') {
