@@ -153,6 +153,37 @@ test('url changes invalidate the cached thumbnail', () => {
   assert.equal(state.dataUrl, '');
 });
 
+test('re-recording a tab with an empty favicon keeps the previously seen one', () => {
+  const tracker = createTracker();
+  tracker.recordTab(makeTab(1, 'https://a.example.com/1', { favIconUrl: 'https://a.example.com/1/icon.png' }));
+  // Activating a reloading tab reports favIconUrl '' and re-records the entry.
+  tracker.recordTab(makeTab(1, 'https://a.example.com/1'));
+  const recent = tracker.getRecentTabs([makeTab(1, 'https://a.example.com/1')]);
+  assert.equal(recent[0].favIconUrl, 'https://a.example.com/1/icon.png');
+});
+
+test('updating a tab with an empty favicon keeps the previously seen one', () => {
+  const tracker = createTracker();
+  tracker.recordTab(makeTab(1, 'https://a.example.com/1', { favIconUrl: 'https://a.example.com/1/icon.png' }));
+  tracker.updateTab(makeTab(1, 'https://a.example.com/1', { title: 'Tab 1 (loading)' }));
+  const recent = tracker.getRecentTabs([makeTab(1, 'https://a.example.com/1')]);
+  assert.equal(recent[0].favIconUrl, 'https://a.example.com/1/icon.png');
+});
+
+test('a newly reported favicon replaces the stored one', () => {
+  const tracker = createTracker();
+  tracker.recordTab(makeTab(1, 'https://a.example.com/1', { favIconUrl: 'https://a.example.com/1/old.png' }));
+  tracker.updateTab(makeTab(1, 'https://a.example.com/1', { favIconUrl: 'https://a.example.com/1/new.png' }));
+  assert.equal(tracker.getStackSnapshot()[0].favIconUrl, 'https://a.example.com/1/new.png');
+});
+
+test('navigating to a new url does not keep the old favicon', () => {
+  const tracker = createTracker();
+  tracker.recordTab(makeTab(1, 'https://a.example.com/one', { favIconUrl: 'https://a.example.com/one/icon.png' }));
+  tracker.updateTab(makeTab(1, 'https://b.example.com/two'));
+  assert.equal(tracker.getStackSnapshot()[0].favIconUrl, '');
+});
+
 test('reconfigure enforces the new thumbnail limit immediately', () => {
   const tracker = createTracker({ thumbnailLimit: 3, thumbnailTtlMs: 6 * 60 * 60 * 1000 });
   const now = Date.now();

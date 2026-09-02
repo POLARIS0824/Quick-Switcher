@@ -257,6 +257,15 @@
         }
         return null;
       }
+      const existingIndex = recentStack.findIndex((item) => item && item.id === snapshot.id);
+      const previous = existingIndex >= 0 ? recentStack[existingIndex] : null;
+      // A tab being (re)loaded or navigated can report favIconUrl '' for a
+      // while; keep the favicon already seen for the same URL.
+      if (previous &&
+          !normalizeUrl(snapshot.favIconUrl) &&
+          normalizeUrl(previous.url) === normalizeUrl(snapshot.url)) {
+        snapshot.favIconUrl = previous.favIconUrl;
+      }
       removeStackEntry(snapshot.id);
       recentStack.unshift(snapshot);
       trimStack();
@@ -277,12 +286,16 @@
         removeTab(tab.id);
         return null;
       }
-      if (normalizeUrl(previous.url) !== normalizeUrl(snapshot.url)) {
+      const sameUrl = normalizeUrl(previous.url) === normalizeUrl(snapshot.url);
+      if (!sameUrl) {
         thumbnailByTabId.delete(tab.id);
       }
       recentStack[existingIndex] = {
         ...previous,
         ...snapshot,
+        // Chrome reports favIconUrl '' while a page loads; an empty value must
+        // not wipe the favicon already recorded for the same URL.
+        favIconUrl: snapshot.favIconUrl || (sameUrl ? previous.favIconUrl : ''),
         visitedAt: previous.visitedAt
       };
       return recentStack[existingIndex];

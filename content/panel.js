@@ -244,10 +244,34 @@
     return 'data:image/svg+xml,' + encodeURIComponent(INLINE_PLACEHOLDER_ICON_SVG);
   }
 
+  function getFaviconServiceRetryUrl(pageUrl, failedSrc) {
+    if (!pageUrl || !chromeApi || !chromeApi.runtime || typeof chromeApi.runtime.getURL !== 'function') {
+      return '';
+    }
+    try {
+      const parsed = new URL(pageUrl);
+      const protocol = String(parsed.protocol || '').toLowerCase();
+      if (protocol !== 'http:' && protocol !== 'https:') {
+        return '';
+      }
+    } catch (error) {
+      return '';
+    }
+    const serviceUrl = `${chromeApi.runtime.getURL('_favicon/')}?pageUrl=${encodeURIComponent(pageUrl)}&size=32`;
+    return String(failedSrc || '') === serviceUrl ? '' : serviceUrl;
+  }
+
   function applyFaviconImageFallback(img) {
     const stage = Number(img.dataset.faviconFallbackStage || '0');
     if (stage < 1) {
       img.dataset.faviconFallbackStage = '1';
+      const retryUrl = getFaviconServiceRetryUrl(img.dataset.faviconPageUrl, img.getAttribute('src'));
+      if (retryUrl) {
+        // The direct favicon URL failed; the profile's own favicon service may
+        // still have an icon recorded for this page.
+        img.src = retryUrl;
+        return;
+      }
       img.src = getFaviconPlaceholderUrl(1);
       return;
     }
@@ -1191,6 +1215,16 @@
       return img;
     }
 
+    function createFaviconImage(className, tab) {
+      const alt = options.getMessage('tab_switcher_favicon_alt', 'Site icon');
+      const favicon = String(tab.favIconUrl || '');
+      const img = favicon
+        ? createImage(className, favicon, alt, '', false, false, true)
+        : createPlaceholderImage(className, alt);
+      img.dataset.faviconPageUrl = String(tab.url || '');
+      return img;
+    }
+
     function buildThumbChildren(thumbEl, tab, previousThumbnail, entering) {
       while (thumbEl.firstChild) {
         thumbEl.removeChild(thumbEl.firstChild);
@@ -1204,18 +1238,7 @@
       } else {
         const fallback = doc.createElement('div');
         fallback.className = 'x-tab-switcher-fallback';
-        const favicon = String(tab.favIconUrl || '');
-        fallback.appendChild(favicon
-          ? createImage(
-            'x-tab-switcher-favicon',
-            favicon,
-            options.getMessage('tab_switcher_favicon_alt', 'Site icon'),
-            '', false, false, true
-          )
-          : createPlaceholderImage(
-            'x-tab-switcher-favicon',
-            options.getMessage('tab_switcher_favicon_alt', 'Site icon')
-          ));
+        fallback.appendChild(createFaviconImage('x-tab-switcher-favicon', tab));
         thumbEl.appendChild(fallback);
       }
     }
@@ -1226,7 +1249,6 @@
         options.getMessage('tab_switcher_untitled', 'Untitled')
       );
       const url = String(tab.url || '');
-      const favicon = String(tab.favIconUrl || '');
       const thumbnailStatus = options.getThumbnailStatus(tab, String(tab.thumbnail || ''));
       const button = doc.createElement('button');
       button.type = 'button';
@@ -1278,11 +1300,7 @@
       meta.className = 'x-tab-switcher-meta';
       const nameRow = doc.createElement('div');
       nameRow.className = 'x-tab-switcher-name-row';
-      if (favicon) {
-        nameRow.appendChild(createImage('x-tab-switcher-title-favicon', favicon, '', '', false, false, true));
-      } else {
-        nameRow.appendChild(createPlaceholderImage('x-tab-switcher-title-favicon', ''));
-      }
+      nameRow.appendChild(createFaviconImage('x-tab-switcher-title-favicon', tab));
       const name = doc.createElement('div');
       name.className = 'x-tab-switcher-name';
       name.title = title;
