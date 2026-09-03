@@ -1309,10 +1309,27 @@ function handleTabSwitcherShortcutModifierReleased(senderTab, releasedKey, callb
   });
 }
 
-function armTabSwitcherShortcutReleaseObservers(tabs, windowId, shortcut, commandStartedAt) {
-  if (typeof windowId !== 'number') {
+function armTabSwitcherShortcutReleaseObserverOnTab(tab, message) {
+  if (!tab || typeof tab.id !== 'number') {
     return;
   }
+  if (isTabSwitcherExtensionPageMessageTarget(tab)) {
+    postTabSwitcherMessageToExtensionPage(tab, message, () => {});
+    return;
+  }
+  if (!chrome || !chrome.tabs || typeof chrome.tabs.sendMessage !== 'function') {
+    return;
+  }
+  try {
+    chrome.tabs.sendMessage(tab.id, message, () => {
+      void (chrome.runtime && chrome.runtime.lastError);
+    });
+  } catch (error) {
+    // Restricted tabs simply cannot participate in the release relay.
+  }
+}
+
+function armTabSwitcherShortcutReleaseObservers(tabs, windowId, shortcut, commandStartedAt, extraTabs) {
   const keys = typeof RECENT_TAB_SWITCHER.getShortcutReleaseEventKeys === 'function'
     ? RECENT_TAB_SWITCHER.getShortcutReleaseEventKeys(shortcut)
     : [];
@@ -1324,24 +1341,22 @@ function armTabSwitcherShortcutReleaseObservers(tabs, windowId, shortcut, comman
     keys,
     commandStartedAt: Number(commandStartedAt) || 0
   };
-  (Array.isArray(tabs) ? tabs : []).forEach((item) => {
-    if (!item || typeof item.id !== 'number' || item.windowId !== windowId) {
-      return;
-    }
-    if (isTabSwitcherExtensionPageMessageTarget(item)) {
-      postTabSwitcherMessageToExtensionPage(item, message, () => {});
-      return;
-    }
-    if (!chrome || !chrome.tabs || typeof chrome.tabs.sendMessage !== 'function') {
-      return;
-    }
-    try {
-      chrome.tabs.sendMessage(item.id, message, () => {
-        void (chrome.runtime && chrome.runtime.lastError);
-      });
-    } catch (error) {
-      // Restricted tabs simply cannot participate in the release relay.
-    }
+  if (typeof windowId === 'number') {
+    (Array.isArray(tabs) ? tabs : []).forEach((item) => {
+      if (!item || typeof item.id !== 'number' || item.windowId !== windowId) {
+        return;
+      }
+      armTabSwitcherShortcutReleaseObserverOnTab(item, message);
+    });
+  }
+  // The panel's actual host can live outside the original window: the popup
+  // window used for restricted pages, fullscreen and native-select reroutes,
+  // or a borrowed tab in another window. Its observer buffers a modifier
+  // release from the moment the page loads but only replays it once armed, so
+  // without this extra arm a release that lands before the panel is ready is
+  // lost and the panel hangs until the next modifier tap.
+  (Array.isArray(extraTabs) ? extraTabs : []).forEach((item) => {
+    armTabSwitcherShortcutReleaseObserverOnTab(item, message);
   });
 }
 
@@ -1706,6 +1721,7 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       return;
     }
     let openingHostTabId = tab.id;
+    let openingHostTab = null;
     const finishOpeningGuard = createTabSwitcherOpeningFinisher(opening);
     const finishOpening = (ok) => {
       finishOpeningGuard();
@@ -1743,7 +1759,10 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
             tabList,
             activeTab.windowId,
             shortcut,
-            commandStartedAt
+            commandStartedAt,
+            openingHostTab && openingHostTab.windowId !== activeTab.windowId
+              ? [openingHostTab]
+              : null
           );
         }
       };
@@ -1786,6 +1805,7 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
           openSwitcherInPopupWindow(activeTab, tabList, items, {
             onHostReady: (popupTab) => {
               openingHostTabId = popupTab.id;
+              openingHostTab = popupTab;
               injectOnHost(popupTab);
             },
             onUnavailable: openSwitcherOnBorrowedHost
@@ -1824,6 +1844,7 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
           return;
         }
         openingHostTabId = hostTab.id;
+        openingHostTab = hostTab;
         focusWindowAndActivateTab(hostTab.id, hostTab.windowId, (result) => {
           if (!result || result.ok === false) {
             finishOpening();
@@ -1834,6 +1855,7 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       };
       if (canHostOnActiveTab) {
         openingHostTabId = activeTab.id;
+        openingHostTab = activeTab;
         injectOnHost(activeTab);
         return;
       }
@@ -1884,6 +1906,7 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         request.tabId,
         typeof request.windowId === 'number' ? request.windowId : null,
         (result) => {
+          console.info('QuickSwitcher: switchToTab', request.tabId, result);
           closeSwitcherPopupWindow(senderTab);
           sendResponse(result || { ok: false });
         }
