@@ -1776,10 +1776,13 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
         if (ok === true) {
           return;
         }
-        if (reason === 'page-fullscreen') {
+        if (reason === 'page-fullscreen' || reason === 'page-select-popup') {
           // The page is showing a fullscreen element, so an in-page overlay
           // would be invisible; host the panel in the popup window instead,
-          // leaving the fullscreen video playing undisturbed.
+          // leaving the fullscreen video playing undisturbed. A focused
+          // <select> gets the same rerouting: its native dropdown paints
+          // above the page and swallows every keystroke, so the in-page
+          // panel would be dead on arrival.
           openSwitcherInPopupWindow(activeTab, tabList, items, {
             onHostReady: (popupTab) => {
               openingHostTabId = popupTab.id;

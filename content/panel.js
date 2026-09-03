@@ -1477,6 +1477,14 @@
       // popup window instead — the video keeps playing undisturbed.
       return { ok: false, reason: 'page-fullscreen' };
     }
+    const focusedElement = document.activeElement;
+    if (focusedElement && focusedElement.tagName === 'SELECT') {
+      // A focused <select> may open its dropdown as a native popup window
+      // that paints above every page layer and consumes all keystrokes in
+      // its own menu loop, leaving an in-page panel visible but dead. Route
+      // to the dedicated popup window, like fullscreen does.
+      return { ok: false, reason: 'page-select-popup' };
+    }
     if (handleExistingSwitcher(context)) {
       return { ok: true, reason: 'already-open' };
     }
