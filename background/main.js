@@ -1559,7 +1559,7 @@ function blindSwitchToNextMostRecentTab(tab, source) {
     ensureSwitcherSettingsLoaded().catch(() => null),
     queryAllTabs()
   ]).then((results) => {
-    const tabQuery = results[1] || { error: 'unknown', tabs: [] };
+    const tabQuery = results[2] || { error: 'unknown', tabs: [] };
     if (tabQuery.error) {
       return;
     }
@@ -1801,13 +1801,9 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
         if (ok === true) {
           return;
         }
-        if (reason === 'page-fullscreen' || reason === 'page-select-popup') {
-          // The page is showing a fullscreen element, so an in-page overlay
-          // would be invisible; host the panel in the popup window instead,
-          // leaving the fullscreen video playing undisturbed. A focused
-          // <select> gets the same rerouting: its native dropdown paints
-          // above the page and swallows every keystroke, so the in-page
-          // panel would be dead on arrival.
+        if (reason === 'page-fullscreen' || reason === 'page-select-popup' || reason === 'page-not-focused') {
+          // The page is showing a fullscreen element, a native dropdown, or lacks keyboard focus (e.g. omnibox);
+          // host the panel in the popup window instead so it receives native OS focus and displays normally.
           openSwitcherInPopupWindow(activeTab, tabList, items, {
             onHostReady: (popupTab) => {
               openingHostTabId = popupTab.id;
@@ -1816,12 +1812,6 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
             },
             onUnavailable: openSwitcherOnBorrowedHost
           });
-          return;
-        }
-        if (reason === 'page-not-focused') {
-          // A native surface holds the keyboard focus (e.g. a permission
-          // prompt); the panel would be dead on arrival, so switch blind.
-          blindSwitchToNextMostRecentTab(tab, source);
           return;
         }
         if (openingHostTabId === activeTab.id) {
