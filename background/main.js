@@ -183,7 +183,13 @@ function canHostSwitcherSurface(tab) {
     return false;
   }
   const url = getResolvedTabUrl(tab);
-  return isOwnExtensionPageUrl(url) || canOpenOverlayOnUrl(url);
+  if (isOwnExtensionPageUrl(url)) {
+    return true;
+  }
+  if (tab.status === 'loading') {
+    return false;
+  }
+  return canOpenOverlayOnUrl(url);
 }
 
 const recentTabTracker = RECENT_TAB_SWITCHER && typeof RECENT_TAB_SWITCHER.createRecentTabTracker === 'function'
@@ -1816,6 +1822,24 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
           // A native surface holds the keyboard focus (e.g. a permission
           // prompt); the panel would be dead on arrival, so switch blind.
           blindSwitchToNextMostRecentTab(tab, source);
+          return;
+        }
+        if (openingHostTabId === activeTab.id) {
+          // In-page injection failed on the active tab (e.g. navigation in progress,
+          // scripting error, or missing switcher toggle function). Fall back to
+          // the dedicated popup window or borrowed host.
+          if (specialHostModeCache === SPECIAL_HOST_MODE_BORROW) {
+            openSwitcherOnBorrowedHost();
+            return;
+          }
+          openSwitcherInPopupWindow(activeTab, tabList, items, {
+            onHostReady: (popupTab) => {
+              openingHostTabId = popupTab.id;
+              openingHostTab = popupTab;
+              injectOnHost(popupTab);
+            },
+            onUnavailable: openSwitcherOnBorrowedHost
+          });
         }
       };
       const injectOnHost = (hostTab) => {
@@ -1866,6 +1890,7 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       openSwitcherInPopupWindow(activeTab, tabList, items, {
         onHostReady: (popupTab) => {
           openingHostTabId = popupTab.id;
+          openingHostTab = popupTab;
           injectOnHost(popupTab);
         },
         onUnavailable: openSwitcherOnBorrowedHost
