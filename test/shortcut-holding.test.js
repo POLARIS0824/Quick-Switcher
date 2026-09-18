@@ -645,3 +645,60 @@ test('[Sanity Check 5.2] pages/switcher-host.js: a REAL keyup event in popup MUS
   );
 });
 
+test('[Sanity Check 5.3] content/key-observer.js: releasing trigger key Q while altKey is false MUST relay Alt release', () => {
+  const sandbox = createKeyObserverSandbox(10000);
+  const commandStartedAt = 10000;
+
+  sandbox.receiveRuntimeMessage({
+    action: 'armTabSwitcherShortcutRelease',
+    keys: ['Alt'],
+    commandStartedAt: commandStartedAt
+  });
+
+  // User releases Q, and Alt is already released (altKey === false)
+  sandbox.advanceTime(50);
+  sandbox.dispatchKeyup({ key: 'q', code: 'KeyQ', altKey: false });
+
+  const releaseMessages = sandbox.getSentMessages().filter(
+    (m) => m.message && m.message.action === 'notifyTabSwitcherShortcutModifierReleased'
+  );
+
+  assert.equal(
+    releaseMessages.length,
+    1,
+    'Releasing Q with altKey: false must relay Alt release'
+  );
+  assert.equal(releaseMessages[0].message.key, 'Alt');
+});
+
+test('[Sanity Check 5.4] content/key-observer.js: quick tap where Chrome consumed keydown (no keydown in DOM) within 80ms drift MUST be replayed', () => {
+  const sandbox = createKeyObserverSandbox(10000);
+
+  // User pressed Alt+Q. Chrome consumed keydown so DOM never saw keydown.
+  // Alt was released at T = 10020ms
+  sandbox.setTime(10020);
+  sandbox.dispatchKeyup({ key: 'Alt', code: 'AltLeft', altKey: false });
+
+  // Background onCommand arrived 30ms later at T = 10050ms (drift = 30ms <= 80ms)
+  const commandStartedAt = 10050;
+  sandbox.setTime(commandStartedAt);
+
+  sandbox.receiveRuntimeMessage({
+    action: 'armTabSwitcherShortcutRelease',
+    keys: ['Alt'],
+    commandStartedAt: commandStartedAt
+  });
+
+  const releaseMessages = sandbox.getSentMessages().filter(
+    (m) => m.message && m.message.action === 'notifyTabSwitcherShortcutModifierReleased'
+  );
+
+  assert.equal(
+    releaseMessages.length,
+    1,
+    'Release within 80ms drift without DOM keydown must be buffered and replayed'
+  );
+  assert.equal(releaseMessages[0].message.key, 'Alt');
+});
+
+

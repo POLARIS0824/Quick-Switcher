@@ -21,6 +21,18 @@
 
   function normalizeReleaseCode(value) {
     const code = String(value || '');
+    if (code === 'AltLeft' || code === 'AltRight') {
+      return 'Alt';
+    }
+    if (code === 'ControlLeft' || code === 'ControlRight') {
+      return 'Control';
+    }
+    if (code === 'MetaLeft' || code === 'MetaRight') {
+      return 'Meta';
+    }
+    if (code === 'ShiftLeft' || code === 'ShiftRight') {
+      return 'Shift';
+    }
     if (/^Key[A-Z]$/.test(code)) {
       return code.slice(3).toLowerCase();
     }
@@ -89,8 +101,21 @@
   }
 
   function getReleasedShortcutKey(event) {
-    return getShortcutReleaseCandidates(event)
-      .find((key) => armedReleaseKeys.includes(key)) || '';
+    const directKey = getShortcutReleaseCandidates(event)
+      .find((key) => armedReleaseKeys.includes(key));
+    if (directKey) {
+      return directKey;
+    }
+    if (event && event.altKey === false && armedReleaseKeys.includes('Alt')) {
+      return 'Alt';
+    }
+    if (event && event.ctrlKey === false && armedReleaseKeys.includes('Control')) {
+      return 'Control';
+    }
+    if (event && event.metaKey === false && armedReleaseKeys.includes('Meta')) {
+      return 'Meta';
+    }
+    return '';
   }
 
   function rememberTrustedShortcutRelease(event) {
@@ -99,6 +124,15 @@
     getShortcutReleaseCandidates(event).forEach((key) => {
       recentTrustedReleaseAtByKey.set(key, releasedAt);
     });
+    if (event && event.altKey === false) {
+      recentTrustedReleaseAtByKey.set('Alt', releasedAt);
+    }
+    if (event && event.ctrlKey === false) {
+      recentTrustedReleaseAtByKey.set('Control', releasedAt);
+    }
+    if (event && event.metaKey === false) {
+      recentTrustedReleaseAtByKey.set('Meta', releasedAt);
+    }
   }
 
   function getBufferedReleasedShortcutKey(keys, commandStartedAt) {
@@ -116,11 +150,15 @@
       if (observedAt >= startedAt) {
         return true;
       }
+      const isRecentDrift = (startedAt - observedAt) <= PRE_COMMAND_RELEASE_MAX_DRIFT_MS;
+      if (!isRecentDrift) {
+        return false;
+      }
       const keydownAt = recentTrustedKeydownAtByKey.get(key);
-      return Number.isFinite(keydownAt) &&
-        keydownAt <= observedAt &&
-        (observedAt - keydownAt) <= RELEASE_REPLAY_WINDOW_MS &&
-        (startedAt - observedAt) <= PRE_COMMAND_RELEASE_MAX_DRIFT_MS;
+      if (Number.isFinite(keydownAt)) {
+        return keydownAt <= observedAt && (observedAt - keydownAt) <= RELEASE_REPLAY_WINDOW_MS;
+      }
+      return true;
     }) || '';
   }
 

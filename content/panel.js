@@ -856,6 +856,12 @@
         font-family: "Open Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         letter-spacing: 0;
         pointer-events: none !important;
+        user-select: none !important;
+        -webkit-user-select: none !important;
+      }
+      #${PANEL_ID} img {
+        -webkit-user-drag: none !important;
+        user-drag: none !important;
       }
       /* Cards are the only mouse surface: a trusted click jumps straight to
       that tab. Hovering never touches the keyboard-selected card. */
@@ -1269,6 +1275,11 @@
           if (!event || event.isTrusted !== true) {
             return;
           }
+          event.preventDefault();
+          if (typeof event.stopImmediatePropagation === 'function') {
+            event.stopImmediatePropagation();
+          }
+          event.stopPropagation();
           options.onCardSelect(index);
         });
       }
@@ -1753,6 +1764,9 @@
           shortcutSuppressor.markTriggerKeyup();
         }
         stopHandledKeyEvent(event);
+        if (shortcut.commitModifierFlag && !isTabSwitcherCommitModifierPressed(shortcut, event)) {
+          switchToSelected();
+        }
         return;
       }
       if (shortcut.commitModifierEventKey &&
@@ -1773,10 +1787,19 @@
       }
     }
 
-    function handleWindowBlur() {
+    function handleWindowBlur(event) {
       // Once keyboard focus moves to a native surface (a permission prompt,
       // the omnibox, another app), the page can never see the modifier
       // release; retire instead of hanging.
+      // Ignore blur events originating from elements within the page
+      // (e.g. text inputs, buttons losing focus when the user clicks a card).
+      // A genuine window blur event targets window (or document).
+      if (event && event.target && event.target !== window && event.target !== document) {
+        return;
+      }
+      if (typeof document.hasFocus === 'function' && document.hasFocus()) {
+        return;
+      }
       if (!didRequestSwitch) {
         close();
       }
@@ -1788,7 +1811,7 @@
     host._quickswitchTabSwitcherCleanup = function() {
       window.removeEventListener('keydown', handleKeydown, true);
       window.removeEventListener('keyup', handleKeyup, true);
-      window.removeEventListener('blur', handleWindowBlur, true);
+      window.removeEventListener('blur', handleWindowBlur, false);
       if (switcherVisualViewport && typeof switcherVisualViewport.removeEventListener === 'function') {
         switcherVisualViewport.removeEventListener('resize', syncSwitcherZoomCompensation);
         switcherVisualViewport.removeEventListener('scroll', syncSwitcherZoomCompensation);
@@ -1803,7 +1826,7 @@
     document.documentElement.appendChild(host);
     window.addEventListener('keydown', handleKeydown, true);
     window.addEventListener('keyup', handleKeyup, true);
-    window.addEventListener('blur', handleWindowBlur, true);
+    window.addEventListener('blur', handleWindowBlur, false);
     document.addEventListener('visibilitychange', handleDocumentVisibilityChange, true);
     if (switcherVisualViewport) {
       switcherVisualViewport.addEventListener('resize', syncSwitcherZoomCompensation, { passive: true });

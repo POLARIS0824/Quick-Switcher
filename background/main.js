@@ -1375,7 +1375,18 @@ function handleTabSwitcherShortcutModifierReleased(senderTab, releasedKey, callb
       return;
     }
     commitOpenTabSwitcherInWindow(senderTab.windowId, 'keyup')
-      .then((didCommit) => finish(didCommit === true))
+      .then((didCommit) => {
+        if (didCommit === true) {
+          finish(true);
+          return;
+        }
+        const windowKey = `window:${senderTab.windowId}`;
+        const opening = tabSwitcherOpeningByWindowKey.get(windowKey);
+        if (opening) {
+          opening.pendingCommitOnReady = true;
+        }
+        finish(false);
+      })
       .catch(() => finish(false));
   });
 }
@@ -1830,6 +1841,7 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       const tabList = tabQuery.tabs;
       const activeTab = tabList.find((item) => item && item.id === tab.id) || tab;
       const finishOpeningAndArmShortcutRelease = (ok) => {
+        const wasPendingCommit = Boolean(opening && opening.pendingCommitOnReady === true);
         finishOpening(ok);
         if (ok === true) {
           armTabSwitcherShortcutReleaseObservers(
@@ -1841,6 +1853,9 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
               ? [openingHostTab]
               : null
           );
+          if (wasPendingCommit) {
+            commitOpenTabSwitcherInWindow(activeTab.windowId, 'early-release');
+          }
         }
       };
       clearScheduledSwitcherThumbnailCapture(activeTab.id);
