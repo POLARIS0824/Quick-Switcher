@@ -9,6 +9,7 @@
     }
   }
   const RELEASE_REPLAY_WINDOW_MS = 5000;
+  const PRE_COMMAND_RELEASE_MAX_DRIFT_MS = 80;
   let armedReleaseKeys = [];
   const recentTrustedKeydownAtByKey = new Map();
   const recentTrustedReleaseAtByKey = new Map();
@@ -119,7 +120,7 @@
       return Number.isFinite(keydownAt) &&
         keydownAt <= observedAt &&
         (observedAt - keydownAt) <= RELEASE_REPLAY_WINDOW_MS &&
-        (startedAt - observedAt) <= RELEASE_REPLAY_WINDOW_MS;
+        (startedAt - observedAt) <= PRE_COMMAND_RELEASE_MAX_DRIFT_MS;
     }) || '';
   }
 

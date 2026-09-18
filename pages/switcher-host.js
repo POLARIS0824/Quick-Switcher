@@ -5,22 +5,12 @@
   const PANEL_OPEN_GRACE_MS = 3000;
   // A quick shortcut flick can release the modifier before this popup window
   // exists, and restricted pages cannot host the key observer that would
-  // replay that release to us. Two independent nets catch the release here:
-  //  (1) any trusted modifier keyup this page observes is buffered and, once
-  //      the panel is open, committed right away — even if it arrived before
-  //      the panel's own key handler was attached;
-  //  (2) if no modifier keydown is ever seen either, the release must have
-  //      finished before the window could observe anything, so commit after a
-  //      short grace period instead of leaving a dead panel on screen.
-  // A still-held modifier produces repeated trusted keydowns as soon as this
-  // window takes focus (its auto-repeat alone suffices), which keeps both
-  // nets open until the real release arrives. A keyup is never taken as proof
-  // that a key is still held — it is the very event we are waiting for. The
-  // grace-period check is deliberately not gated on document.hasFocus(): a
-  // freshly created popup can stay unreported as focused for a long time on
-  // Windows, which would starve the commit; a real focus loss stays the
-  // cancel path via the blur handler below.
-  const LOST_RELEASE_COMMIT_MS = 500;
+  // replay that release to us. Any trusted modifier keyup this page observes
+  // is buffered and, once the panel is open, committed right away — even if
+  // it arrived before the panel's own key handler was attached.
+  // We do not force-commit on lack of keydown because modifier keys (like Alt)
+  // do not auto-repeat on Windows, and doing so would prematurely commit the
+  // switch while the user is still holding the shortcut to preview tabs.
   const BLUR_CLOSE_DELAY_MS = 120;
   const POLL_INTERVAL_MS = 100;
   // Chrome command shortcuts always require Ctrl or Alt (Meta on macOS), so
@@ -154,20 +144,10 @@
       commitOpenPanel('buffered-release commit');
       return;
     }
-    if (sawTrustedKeydown) {
-      // A key is (or was) held: the panel's own keyup handler and the armed
-      // page-bridge relay own the commit from here.
-      return;
-    }
     if (lostFocusAfterOpen && !document.hasFocus()) {
       // The user moved focus elsewhere on purpose; the blur handler above is
       // already retiring this window, so keep the flick commit off.
       return;
-    }
-    if (Date.now() - focusedAt > LOST_RELEASE_COMMIT_MS) {
-      // No key activity at all reached this window: the flick ended before
-      // the window could observe it, so commit the default selection.
-      commitOpenPanel('lost-release commit');
     }
   }, POLL_INTERVAL_MS);
 })();

@@ -8,6 +8,7 @@
   const TAB_SWITCHER_ADVANCE_EVENT = '_quickswitch_tab_switcher_advance_command_2026_unique_';
   const TAB_SWITCHER_EXTENSION_PAGE_PORT_NAME = 'lumno-tab-switcher-extension-page';
   const TAB_SWITCHER_RELEASE_REPLAY_WINDOW_MS = 5000;
+  const TAB_SWITCHER_PRE_COMMAND_RELEASE_MAX_DRIFT_MS = 80;
   const chromeApi = typeof chrome !== 'undefined' ? chrome : null;
   let extensionPagePort = null;
   let extensionPagePortReconnectTimer = null;
@@ -123,7 +124,7 @@
       return Number.isFinite(keydownAt) &&
         keydownAt <= observedAt &&
         (observedAt - keydownAt) <= TAB_SWITCHER_RELEASE_REPLAY_WINDOW_MS &&
-        (startedAt - observedAt) <= TAB_SWITCHER_RELEASE_REPLAY_WINDOW_MS;
+        (startedAt - observedAt) <= TAB_SWITCHER_PRE_COMMAND_RELEASE_MAX_DRIFT_MS;
     }) || '';
   }
 
