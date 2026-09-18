@@ -96,6 +96,29 @@
       color: inherit;
       accent-color: #2563eb;
     }
+    .log-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .log-btn {
+      font: inherit;
+      font-size: 12px;
+      padding: 4px 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+    }
+    .log-btn:hover {
+      background: rgba(37, 99, 235, 0.08);
+      border-color: #2563eb;
+    }
+    .log-btn-secondary {
+      color: #64748b;
+    }
     footer {
       display: flex;
       align-items: center;
@@ -132,6 +155,16 @@
       }
       .select-row select {
         border-color: #334155;
+      }
+      .log-btn {
+        border-color: #334155;
+      }
+      .log-btn:hover {
+        background: rgba(59, 130, 246, 0.12);
+        border-color: #3b82f6;
+      }
+      .log-btn-secondary {
+        color: #94a3b8;
       }
       footer {
         border-color: #334155;
@@ -200,6 +233,13 @@
         <option value="6">6h</option>
         <option value="12">12h</option>
       </select>
+    </div>
+  </div>
+  <div class="setting">
+    <div class="row" id="logs-label"></div>
+    <div class="log-row">
+      <button type="button" id="copy-logs-btn" class="log-btn"></button>
+      <button type="button" id="clear-logs-btn" class="log-btn log-btn-secondary"></button>
     </div>
   </div>
   <p class="status" id="status"></p>

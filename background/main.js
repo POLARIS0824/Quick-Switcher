@@ -396,6 +396,71 @@ if (chrome.storage && chrome.storage.onChanged) {
 
 loadTabSwitcherEnabledSetting();
 
+const DEBUG_LOGS_STORAGE_KEY = 'quickswitch_debug_logs';
+const DEBUG_LOGS_MAX_ENTRIES = 100;
+const debugLogsMemoryCache = [];
+let debugLogsLoaded = false;
+let debugLogsPersistTimer = null;
+
+function formatLogTimestamp(ts) {
+  const d = new Date(ts);
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+}
+
+function appendDebugLog(category, message, details, level = 'info') {
+  const now = Date.now();
+  const entry = {
+    time: formatLogTimestamp(now),
+    timestamp: now,
+    level,
+    category,
+    message: String(message || ''),
+    details: details && typeof details === 'object' ? details : undefined
+  };
+  debugLogsMemoryCache.push(entry);
+  if (debugLogsMemoryCache.length > DEBUG_LOGS_MAX_ENTRIES) {
+    debugLogsMemoryCache.splice(0, debugLogsMemoryCache.length - DEBUG_LOGS_MAX_ENTRIES);
+  }
+  schedulePersistDebugLogs();
+}
+
+function schedulePersistDebugLogs() {
+  if (debugLogsPersistTimer) {
+    return;
+  }
+  debugLogsPersistTimer = setTimeout(() => {
+    debugLogsPersistTimer = null;
+    if (!chrome || !chrome.storage || !chrome.storage.local) {
+      return;
+    }
+    chrome.storage.local.set({ [DEBUG_LOGS_STORAGE_KEY]: debugLogsMemoryCache }, () => {
+      void (chrome.runtime && chrome.runtime.lastError);
+    });
+  }, 200);
+}
+
+function loadInitialDebugLogs() {
+  if (!chrome || !chrome.storage || !chrome.storage.local) {
+    debugLogsLoaded = true;
+    return;
+  }
+  chrome.storage.local.get([DEBUG_LOGS_STORAGE_KEY], (res) => {
+    if (chrome.runtime && chrome.runtime.lastError) {
+      debugLogsLoaded = true;
+      return;
+    }
+    const stored = res && Array.isArray(res[DEBUG_LOGS_STORAGE_KEY]) ? res[DEBUG_LOGS_STORAGE_KEY] : [];
+    if (!debugLogsLoaded) {
+      const combined = stored.concat(debugLogsMemoryCache);
+      debugLogsMemoryCache.splice(0, debugLogsMemoryCache.length, ...combined.slice(-DEBUG_LOGS_MAX_ENTRIES));
+      debugLogsLoaded = true;
+    }
+  });
+}
+
+loadInitialDebugLogs();
+
 function getPortSenderTabId(port) {
   const senderTab = port && port.sender && port.sender.tab ? port.sender.tab : null;
   return senderTab && typeof senderTab.id === 'number' ? senderTab.id : null;
@@ -1561,6 +1626,7 @@ function blindSwitchToNextMostRecentTab(tab, source) {
   ]).then((results) => {
     const tabQuery = results[2] || { error: 'unknown', tabs: [] };
     if (tabQuery.error) {
+      appendDebugLog('blind-switch', `Blind switch failed: tabQuery error (${tabQuery.error})`, { tabId: tab && tab.id }, 'warn');
       return;
     }
     const tabList = tabQuery.tabs;
@@ -1570,14 +1636,19 @@ function blindSwitchToNextMostRecentTab(tab, source) {
     }
     const items = getRecentTabsForSwitcher(tabList, activeTab.id);
     if (!items.length) {
+      appendDebugLog('blind-switch', `Blind switch skipped: no recent items`, { tabId: activeTab.id }, 'warn');
       return;
     }
     const target = items[getDefaultSwitcherSelectedIndex(items, activeTab.id)];
     if (!target || typeof target.id !== 'number' || target.id === activeTab.id) {
+      appendDebugLog('blind-switch', `Blind switch skipped: invalid target`, { targetId: target && target.id }, 'warn');
       return;
     }
+    appendDebugLog('blind-switch', `Executing blind switch to tab ${target.id}`, { targetId: target.id, targetUrl: target.url });
     focusWindowAndActivateTab(target.id, target.windowId, () => {});
-  }).catch(() => {});
+  }).catch((err) => {
+    appendDebugLog('blind-switch', `Blind switch exception: ${err && err.message}`, undefined, 'error');
+  });
 }
 
 function injectTabSwitcherOnTab(hostTab, items, context) {
@@ -1797,6 +1868,7 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       const canHostOnActiveTab = canHostSwitcherSurface(activeTab);
       const selectedIndex = getDefaultSwitcherSelectedIndex(items, activeTab.id);
       const handleOpenComplete = (ok, reason) => {
+        appendDebugLog('open', `Open complete`, { ok, reason, hostTabId: openingHostTabId });
         finishOpeningAndArmShortcutRelease(ok);
         if (ok === true) {
           return;
@@ -1804,6 +1876,10 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
         if (reason === 'page-fullscreen' || reason === 'page-select-popup' || reason === 'page-not-focused') {
           // The page is showing a fullscreen element, a native dropdown, or lacks keyboard focus (e.g. omnibox);
           // host the panel in the popup window instead so it receives native OS focus and displays normally.
+          appendDebugLog('fallback', `In-page overlay unavailable (${reason}), opening switcher popup window`, {
+            activeTabId: activeTab.id,
+            reason
+          });
           openSwitcherInPopupWindow(activeTab, tabList, items, {
             onHostReady: (popupTab) => {
               openingHostTabId = popupTab.id;
@@ -1898,7 +1974,14 @@ chrome.commands.onCommand.addListener(function(command) {
   const commandObservedAt = Date.now();
   const source = 'commands-tab-switcher';
   chrome.tabs.query({ active: true, currentWindow: true }, function(activeTabs) {
-    triggerTabSwitcherForTab(activeTabs[0], source, commandObservedAt);
+    const tab = activeTabs && activeTabs[0] ? activeTabs[0] : null;
+    appendDebugLog('command', `Shortcut triggered: ${command}`, {
+      tabId: tab && tab.id,
+      windowId: tab && tab.windowId,
+      url: tab && tab.url,
+      title: tab && tab.title
+    });
+    triggerTabSwitcherForTab(tab, source, commandObservedAt);
   });
 });
 
@@ -1911,16 +1994,33 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     return;
   }
   switch (request.action) {
+    case 'getDebugLogs': {
+      sendResponse({ ok: true, logs: debugLogsMemoryCache.slice() });
+      return;
+    }
+    case 'clearDebugLogs': {
+      debugLogsMemoryCache.length = 0;
+      if (chrome && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.remove(DEBUG_LOGS_STORAGE_KEY, () => {
+          sendResponse({ ok: true });
+        });
+        return true;
+      }
+      sendResponse({ ok: true });
+      return;
+    }
     case 'switchToTab': {
       if (typeof request.tabId !== 'number') {
         sendResponse({ ok: false, reason: 'invalid-tab' });
         return;
       }
       const senderTab = sender && sender.tab ? sender.tab : null;
+      appendDebugLog('switch', `Switch to tab requested`, { tabId: request.tabId, windowId: request.windowId });
       focusWindowAndActivateTab(
         request.tabId,
         typeof request.windowId === 'number' ? request.windowId : null,
         (result) => {
+          appendDebugLog('switch', `Switch result`, { tabId: request.tabId, ok: result && result.ok });
           console.info('QuickSwitcher: switchToTab', request.tabId, result);
           closeSwitcherPopupWindow(senderTab);
           sendResponse(result || { ok: false });
@@ -1952,7 +2052,9 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     }
     case 'notifyTabSwitcherShortcutModifierReleased': {
       const senderTab = sender && sender.tab ? sender.tab : null;
+      appendDebugLog('release', `Modifier released notification received`, { key: request && request.key, tabId: senderTab && senderTab.id });
       handleTabSwitcherShortcutModifierReleased(senderTab, request && request.key, (didCommit) => {
+        appendDebugLog('release', `Modifier release commit finished`, { didCommit });
         sendResponse({ ok: true, committed: didCommit === true });
       });
       return true;

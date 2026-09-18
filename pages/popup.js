@@ -24,6 +24,12 @@
     thumbnailTtlLabel: '保留时长',
     panelLabel: '面板',
     panelCountLabel: '卡片数量',
+    logsLabel: '运行日志',
+    copyLogsBtn: '复制日志',
+    clearLogsBtn: '清空日志',
+    logsCopiedLabel: '已复制日志到剪贴板',
+    logsClearedLabel: '已清空运行日志',
+    noLogsLabel: '暂无日志记录',
     savedLabel: '已保存',
     saveFailedLabel: '保存失败，请重试'
   } : {
@@ -39,6 +45,12 @@
     thumbnailTtlLabel: 'Keep for',
     panelLabel: 'Panel',
     panelCountLabel: 'Cards',
+    logsLabel: 'Runtime Logs',
+    copyLogsBtn: 'Copy Logs',
+    clearLogsBtn: 'Clear Logs',
+    logsCopiedLabel: 'Logs copied to clipboard',
+    logsClearedLabel: 'Logs cleared',
+    noLogsLabel: 'No logs recorded yet',
     savedLabel: 'Saved',
     saveFailedLabel: 'Save failed, please retry'
   };
@@ -55,6 +67,9 @@
   document.getElementById('thumbnail-ttl-label').textContent = strings.thumbnailTtlLabel;
   document.getElementById('panel-label').textContent = strings.panelLabel;
   document.getElementById('panel-count-label').textContent = strings.panelCountLabel;
+  document.getElementById('logs-label').textContent = strings.logsLabel;
+  document.getElementById('copy-logs-btn').textContent = strings.copyLogsBtn;
+  document.getElementById('clear-logs-btn').textContent = strings.clearLogsBtn;
 
   const versionEl = document.getElementById('version');
   if (chrome && chrome.runtime && typeof chrome.runtime.getManifest === 'function') {
@@ -197,6 +212,59 @@
       if (changes[PANEL_TAB_COUNT_STORAGE_KEY]) {
         panelTabCountSelect.value = String(Number(changes[PANEL_TAB_COUNT_STORAGE_KEY].newValue) || DEFAULT_PANEL_TAB_COUNT);
       }
+    });
+  }
+
+  const copyLogsBtn = document.getElementById('copy-logs-btn');
+  const clearLogsBtn = document.getElementById('clear-logs-btn');
+
+  function formatLogsForExport(logs) {
+    if (!Array.isArray(logs) || !logs.length) {
+      return '';
+    }
+    return logs.map((entry) => {
+      const time = entry && entry.time ? entry.time : '';
+      const level = entry && entry.level ? `[${entry.level.toUpperCase()}]` : '';
+      const category = entry && entry.category ? `[${entry.category}]` : '';
+      const msg = entry && entry.message ? entry.message : '';
+      const details = entry && entry.details ? ` ${JSON.stringify(entry.details)}` : '';
+      return `${time} ${level} ${category} ${msg}${details}`.trim();
+    }).join('\n');
+  }
+
+  if (copyLogsBtn) {
+    copyLogsBtn.addEventListener('click', () => {
+      if (!chrome || !chrome.runtime || typeof chrome.runtime.sendMessage !== 'function') {
+        return;
+      }
+      chrome.runtime.sendMessage({ action: 'getDebugLogs' }, (response) => {
+        const logs = response && Array.isArray(response.logs) ? response.logs : [];
+        if (!logs.length) {
+          showStatus(strings.noLogsLabel);
+          return;
+        }
+        const text = formatLogsForExport(logs);
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          navigator.clipboard.writeText(text).then(() => {
+            showStatus(`${strings.logsCopiedLabel} (${logs.length})`);
+          }).catch(() => {
+            showStatus(strings.saveFailedLabel);
+          });
+        } else {
+          showStatus(strings.logsCopiedLabel);
+        }
+      });
+    });
+  }
+
+  if (clearLogsBtn) {
+    clearLogsBtn.addEventListener('click', () => {
+      if (!chrome || !chrome.runtime || typeof chrome.runtime.sendMessage !== 'function') {
+        return;
+      }
+      chrome.runtime.sendMessage({ action: 'clearDebugLogs' }, () => {
+        showStatus(strings.logsClearedLabel);
+      });
     });
   }
 })();
