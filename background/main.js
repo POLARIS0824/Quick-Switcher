@@ -27,6 +27,17 @@ const THUMBNAIL_LIMIT_CHOICES = [12, 20, 24, 36];
 const THUMBNAIL_TTL_HOUR_CHOICES = [2, 6, 12];
 const PANEL_TAB_COUNT_STORAGE_KEY = 'panelTabCount';
 const PANEL_TAB_COUNT_CHOICES = [5, 7, 10];
+const PANEL_THEME_STORAGE_KEY = 'panelTheme';
+const PANEL_THEME_CHOICES = ['auto', 'light', 'dark'];
+const PANEL_ACCENT_STORAGE_KEY = 'panelAccent';
+// `default` keeps the built-in blue by emitting no override at all.
+const PANEL_ACCENT_RGB_CHOICES = {
+  default: null,
+  violet: [124, 58, 237],
+  teal: [13, 148, 136],
+  orange: [234, 88, 12],
+  pink: [219, 39, 119]
+};
 const TAB_SWITCHER_STATE_STORAGE_KEY = 'state';
 const TAB_SWITCHER_EXTENSION_PAGE_PORT_NAME = 'lumno-tab-switcher-extension-page';
 // A freshly created popup window still has to load its page and connect the
@@ -57,6 +68,8 @@ let specialHostModeCache = SPECIAL_HOST_MODE_POPUP;
 let thumbnailLimitCache = TAB_SWITCHER_THUMBNAIL_LIMIT;
 let thumbnailTtlHoursCache = TAB_SWITCHER_THUMBNAIL_TTL_MS / (1000 * 60 * 60);
 let panelTabCountCache = TAB_SWITCHER_LIMIT;
+let panelThemeCache = 'auto';
+let panelAccentCache = 'default';
 const tabSwitcherExtensionPagePortsByTabId = new Map();
 const tabSwitcherOpeningByWindowKey = new Map();
 const tabSwitcherHostTabIdByWindowId = new Map();
@@ -318,6 +331,20 @@ function normalizePanelTabCountChoice(value) {
   return PANEL_TAB_COUNT_CHOICES.includes(count) ? count : TAB_SWITCHER_LIMIT;
 }
 
+function normalizePanelThemeChoice(value) {
+  return PANEL_THEME_CHOICES.includes(value) ? value : 'auto';
+}
+
+function normalizePanelAccentChoice(value) {
+  return Object.prototype.hasOwnProperty.call(PANEL_ACCENT_RGB_CHOICES, value)
+    ? value
+    : 'default';
+}
+
+function getPanelAccentRgbForPayload() {
+  return PANEL_ACCENT_RGB_CHOICES[panelAccentCache] || null;
+}
+
 function applyThumbnailSettingsToTracker() {
   if (recentTabTracker && typeof recentTabTracker.reconfigure === 'function') {
     if (recentTabTracker.reconfigure({
@@ -350,7 +377,9 @@ function ensureSwitcherSettingsLoaded() {
       SPECIAL_HOST_MODE_STORAGE_KEY,
       THUMBNAIL_LIMIT_STORAGE_KEY,
       THUMBNAIL_TTL_HOURS_STORAGE_KEY,
-      PANEL_TAB_COUNT_STORAGE_KEY
+      PANEL_TAB_COUNT_STORAGE_KEY,
+      PANEL_THEME_STORAGE_KEY,
+      PANEL_ACCENT_STORAGE_KEY
     ], (result) => {
       if (chrome.runtime && chrome.runtime.lastError) {
         resolve(false);
@@ -361,6 +390,8 @@ function ensureSwitcherSettingsLoaded() {
       thumbnailLimitCache = normalizeThumbnailLimitChoice(result && result[THUMBNAIL_LIMIT_STORAGE_KEY]);
       thumbnailTtlHoursCache = normalizeThumbnailTtlHoursChoice(result && result[THUMBNAIL_TTL_HOURS_STORAGE_KEY]);
       panelTabCountCache = normalizePanelTabCountChoice(result && result[PANEL_TAB_COUNT_STORAGE_KEY]);
+      panelThemeCache = normalizePanelThemeChoice(result && result[PANEL_THEME_STORAGE_KEY]);
+      panelAccentCache = normalizePanelAccentChoice(result && result[PANEL_ACCENT_STORAGE_KEY]);
       applyThumbnailSettingsToTracker();
       resolve(true);
     });
@@ -393,6 +424,12 @@ if (chrome.storage && chrome.storage.onChanged) {
     }
     if (changes[PANEL_TAB_COUNT_STORAGE_KEY]) {
       panelTabCountCache = normalizePanelTabCountChoice(changes[PANEL_TAB_COUNT_STORAGE_KEY].newValue);
+    }
+    if (changes[PANEL_THEME_STORAGE_KEY]) {
+      panelThemeCache = normalizePanelThemeChoice(changes[PANEL_THEME_STORAGE_KEY].newValue);
+    }
+    if (changes[PANEL_ACCENT_STORAGE_KEY]) {
+      panelAccentCache = normalizePanelAccentChoice(changes[PANEL_ACCENT_STORAGE_KEY].newValue);
     }
   });
 }
@@ -1747,7 +1784,9 @@ function injectTabSwitcherOnTab(hostTab, items, context) {
     suppressInitialShortcutAdvance: context && context.source === 'commands-tab-switcher',
     shortcut: context && typeof context.shortcut === 'string' ? context.shortcut : FALLBACK_TAB_SWITCHER_SHORTCUT,
     source: context && context.source ? context.source : '',
-    isBorrowedHost: Boolean(context && context.isBorrowedHost)
+    isBorrowedHost: Boolean(context && context.isBorrowedHost),
+    panelTheme: panelThemeCache,
+    panelAccentRgb: getPanelAccentRgbForPayload()
   });
   if (isTabSwitcherExtensionPageMessageTarget(hostTab)) {
     postTabSwitcherMessageToExtensionPage(hostTab, {

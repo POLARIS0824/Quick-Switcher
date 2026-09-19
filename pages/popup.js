@@ -6,6 +6,12 @@
   const THUMBNAIL_LIMIT_STORAGE_KEY = 'thumbnailLimit';
   const THUMBNAIL_TTL_HOURS_STORAGE_KEY = 'thumbnailTtlHours';
   const PANEL_TAB_COUNT_STORAGE_KEY = 'panelTabCount';
+  const PANEL_THEME_STORAGE_KEY = 'panelTheme';
+  const PANEL_ACCENT_STORAGE_KEY = 'panelAccent';
+  const PANEL_THEME_VALUES = ['auto', 'light', 'dark'];
+  const PANEL_ACCENT_VALUES = ['default', 'violet', 'teal', 'orange', 'pink'];
+  const DEFAULT_PANEL_THEME = 'auto';
+  const DEFAULT_PANEL_ACCENT = 'default';
   const DEFAULT_SPECIAL_HOST_MODE = 'popup';
   const DEFAULT_THUMBNAIL_LIMIT = '12';
   const DEFAULT_THUMBNAIL_TTL_HOURS = '2';
@@ -24,6 +30,16 @@
     thumbnailTtlLabel: '保留时长',
     panelLabel: '面板',
     panelCountLabel: '卡片数量',
+    panelThemeLabel: '主题',
+    themeAuto: '自动（跟随页面）',
+    themeLight: '浅色',
+    themeDark: '深色',
+    panelAccentLabel: '强调色',
+    accentDefault: '默认蓝',
+    accentViolet: '紫色',
+    accentTeal: '青色',
+    accentOrange: '橙色',
+    accentPink: '粉色',
     logsLabel: '运行日志',
     copyLogsBtn: '复制日志',
     clearLogsBtn: '清空日志',
@@ -45,6 +61,16 @@
     thumbnailTtlLabel: 'Keep for',
     panelLabel: 'Panel',
     panelCountLabel: 'Cards',
+    panelThemeLabel: 'Theme',
+    themeAuto: 'Auto (match page)',
+    themeLight: 'Light',
+    themeDark: 'Dark',
+    panelAccentLabel: 'Accent color',
+    accentDefault: 'Default blue',
+    accentViolet: 'Violet',
+    accentTeal: 'Teal',
+    accentOrange: 'Orange',
+    accentPink: 'Pink',
     logsLabel: 'Runtime Logs',
     copyLogsBtn: 'Copy Logs',
     clearLogsBtn: 'Clear Logs',
@@ -67,6 +93,8 @@
   document.getElementById('thumbnail-ttl-label').textContent = strings.thumbnailTtlLabel;
   document.getElementById('panel-label').textContent = strings.panelLabel;
   document.getElementById('panel-count-label').textContent = strings.panelCountLabel;
+  document.getElementById('panel-theme-label').textContent = strings.panelThemeLabel;
+  document.getElementById('panel-accent-label').textContent = strings.panelAccentLabel;
   document.getElementById('logs-label').textContent = strings.logsLabel;
   document.getElementById('copy-logs-btn').textContent = strings.copyLogsBtn;
   document.getElementById('clear-logs-btn').textContent = strings.clearLogsBtn;
@@ -88,6 +116,22 @@
   const thumbnailLimitSelect = document.getElementById('thumbnailLimit');
   const thumbnailTtlSelect = document.getElementById('thumbnailTtlHours');
   const panelTabCountSelect = document.getElementById('panelTabCount');
+  const panelThemeSelect = document.getElementById('panelTheme');
+  const panelAccentSelect = document.getElementById('panelAccent');
+  const themeOptionLabels = [strings.themeAuto, strings.themeLight, strings.themeDark];
+  const accentOptionLabels = [
+    strings.accentDefault,
+    strings.accentViolet,
+    strings.accentTeal,
+    strings.accentOrange,
+    strings.accentPink
+  ];
+  Array.from(panelThemeSelect.options).forEach((option, index) => {
+    option.textContent = themeOptionLabels[index] || option.value;
+  });
+  Array.from(panelAccentSelect.options).forEach((option, index) => {
+    option.textContent = accentOptionLabels[index] || option.value;
+  });
   let statusTimer = null;
 
   function showStatus(text) {
@@ -121,6 +165,8 @@
     thumbnailLimitSelect.disabled = true;
     thumbnailTtlSelect.disabled = true;
     panelTabCountSelect.disabled = true;
+    panelThemeSelect.disabled = true;
+    panelAccentSelect.disabled = true;
     return;
   }
 
@@ -129,7 +175,9 @@
     SPECIAL_HOST_MODE_STORAGE_KEY,
     THUMBNAIL_LIMIT_STORAGE_KEY,
     THUMBNAIL_TTL_HOURS_STORAGE_KEY,
-    PANEL_TAB_COUNT_STORAGE_KEY
+    PANEL_TAB_COUNT_STORAGE_KEY,
+    PANEL_THEME_STORAGE_KEY,
+    PANEL_ACCENT_STORAGE_KEY
   ], (result) => {
     if (chrome.runtime && chrome.runtime.lastError) {
       checkbox.checked = true;
@@ -137,6 +185,8 @@
       thumbnailLimitSelect.value = DEFAULT_THUMBNAIL_LIMIT;
       thumbnailTtlSelect.value = DEFAULT_THUMBNAIL_TTL_HOURS;
       panelTabCountSelect.value = DEFAULT_PANEL_TAB_COUNT;
+      panelThemeSelect.value = DEFAULT_PANEL_THEME;
+      panelAccentSelect.value = DEFAULT_PANEL_ACCENT;
       return;
     }
     checkbox.checked = !result || result[ENABLED_STORAGE_KEY] !== false;
@@ -146,6 +196,14 @@
     thumbnailLimitSelect.value = String(Number(result && result[THUMBNAIL_LIMIT_STORAGE_KEY]) || DEFAULT_THUMBNAIL_LIMIT);
     thumbnailTtlSelect.value = String(Number(result && result[THUMBNAIL_TTL_HOURS_STORAGE_KEY]) || DEFAULT_THUMBNAIL_TTL_HOURS);
     panelTabCountSelect.value = String(Number(result && result[PANEL_TAB_COUNT_STORAGE_KEY]) || DEFAULT_PANEL_TAB_COUNT);
+    const storedPanelTheme = result && result[PANEL_THEME_STORAGE_KEY];
+    panelThemeSelect.value = PANEL_THEME_VALUES.includes(storedPanelTheme)
+      ? storedPanelTheme
+      : DEFAULT_PANEL_THEME;
+    const storedPanelAccent = result && result[PANEL_ACCENT_STORAGE_KEY];
+    panelAccentSelect.value = PANEL_ACCENT_VALUES.includes(storedPanelAccent)
+      ? storedPanelAccent
+      : DEFAULT_PANEL_ACCENT;
   });
 
   checkbox.addEventListener('change', () => {
@@ -190,6 +248,22 @@
     });
   });
 
+  // Theme and accent are string enums; save them verbatim, no Number cast.
+  [
+    [panelThemeSelect, PANEL_THEME_STORAGE_KEY],
+    [panelAccentSelect, PANEL_ACCENT_STORAGE_KEY]
+  ].forEach(([select, storageKey]) => {
+    select.addEventListener('change', () => {
+      storageArea.set({ [storageKey]: select.value }, () => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          showStatus(strings.saveFailedLabel);
+          return;
+        }
+        showStatus(strings.savedLabel);
+      });
+    });
+  });
+
   if (chrome.storage && chrome.storage.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== 'sync' || !changes) {
@@ -211,6 +285,14 @@
       }
       if (changes[PANEL_TAB_COUNT_STORAGE_KEY]) {
         panelTabCountSelect.value = String(Number(changes[PANEL_TAB_COUNT_STORAGE_KEY].newValue) || DEFAULT_PANEL_TAB_COUNT);
+      }
+      if (changes[PANEL_THEME_STORAGE_KEY]) {
+        const nextTheme = changes[PANEL_THEME_STORAGE_KEY].newValue;
+        panelThemeSelect.value = PANEL_THEME_VALUES.includes(nextTheme) ? nextTheme : DEFAULT_PANEL_THEME;
+      }
+      if (changes[PANEL_ACCENT_STORAGE_KEY]) {
+        const nextAccent = changes[PANEL_ACCENT_STORAGE_KEY].newValue;
+        panelAccentSelect.value = PANEL_ACCENT_VALUES.includes(nextAccent) ? nextAccent : DEFAULT_PANEL_ACCENT;
       }
     });
   }

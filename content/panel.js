@@ -616,7 +616,19 @@
     return null;
   }
 
+  // `auto` keeps the page-sniffed/system behavior; `light`/`dark` lock the
+  // panel regardless of what the host page does. Set per open from settings.
+  let switcherPanelThemeOverride = 'auto';
+
+  function normalizeSwitcherPanelTheme(value) {
+    const theme = String(value || '').trim().toLowerCase();
+    return theme === 'light' || theme === 'dark' ? theme : 'auto';
+  }
+
   function resolveSwitcherTheme() {
+    if (switcherPanelThemeOverride === 'light' || switcherPanelThemeOverride === 'dark') {
+      return switcherPanelThemeOverride;
+    }
     const pageTheme = detectSwitcherPageTheme();
     if (pageTheme) {
       return pageTheme;
@@ -853,7 +865,7 @@
       #${PANEL_ID},
       #${PANEL_ID} * {
         box-sizing: border-box;
-        font-family: "Open Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         letter-spacing: 0;
         pointer-events: none !important;
         user-select: none !important;
@@ -950,6 +962,7 @@
           (var(--x-tab-count, 5) - 1) * var(--x-tab-switcher-gap)
         );
         max-width: 100%;
+        transition: width var(--x-tab-switcher-motion-panel);
       }
       .x-tab-switcher-card {
         all: unset;
@@ -1089,7 +1102,7 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        color: rgba(23, 32, 51, 0.58);
+        color: rgba(23, 32, 51, 0.72);
         font-size: 11px;
         font-weight: 560;
         line-height: 1.18;
@@ -1172,7 +1185,7 @@
         color: #f8fafc;
       }
       #${PANEL_ID}[data-theme="dark"] .x-tab-switcher-host {
-        color: rgba(248, 250, 252, 0.58);
+        color: rgba(248, 250, 252, 0.72);
       }
       #${PANEL_ID}[data-theme="dark"] .x-tab-switcher-thumb {
         background: color-mix(in srgb, var(--x-tab-switcher-card-accent, var(--x-tab-switcher-accent)) 18%, rgba(15, 23, 42, 0.92));
@@ -1364,6 +1377,10 @@
       if (!panel || !listEl || destroyed) {
         return;
       }
+      // Keep the column count in sync with the live list so closing cards
+      // shrinks the panel (animated by the list width transition) instead of
+      // leaving it at its opening width with spare space.
+      panel.style.setProperty('--x-tab-count', String(Math.max(1, Math.min(5, tabs.length))));
       while (listEl.firstChild) {
         listEl.removeChild(listEl.firstChild);
       }
@@ -1602,6 +1619,13 @@
     if (!panel) {
       host.remove();
       return { ok: false, reason: 'panel-view-unavailable' };
+    }
+    // Both land before the theme controller starts and the entrance reveal,
+    // so the panel paints in its final theme/accent from the first frame.
+    switcherPanelThemeOverride = normalizeSwitcherPanelTheme(context.panelTheme);
+    const panelAccent = normalizeAccentCss(context.panelAccentRgb);
+    if (panelAccent) {
+      panel.style.setProperty('--x-tab-switcher-accent', panelAccent);
     }
     applySwitcherViewportPlacement(panel, window);
     applySwitcherZoomCompensation(panel, context.tabZoomFactor, getSwitcherVisualViewportScale(window));
