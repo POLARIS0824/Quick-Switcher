@@ -894,6 +894,7 @@
         --x-tab-switcher-visible-scale: 1;
         --x-tab-switcher-motion-card: 180ms cubic-bezier(0.22, 1, 0.36, 1);
         --x-tab-switcher-motion-cover: 220ms cubic-bezier(0.22, 1, 0.36, 1);
+        --x-tab-switcher-motion-panel: 160ms cubic-bezier(0.22, 1, 0.36, 1);
         --x-tab-switcher-thumb-stroke-inset: -0.5px;
         --x-tab-switcher-thumb-stroke-radius-offset: 0.5px;
         --x-tab-switcher-thumb-stroke-color: rgba(15, 23, 42, 0.2);
@@ -925,12 +926,19 @@
         padding: var(--x-tab-switcher-padding-panel);
         pointer-events: none;
         opacity: 0;
-        transition: opacity 90ms ease;
-        will-change: opacity;
+        transform: translate3d(-50%, -50%, 0) scale(calc(var(--x-tab-switcher-visible-scale) * 0.96));
+        transition:
+          opacity var(--x-tab-switcher-motion-panel),
+          transform var(--x-tab-switcher-motion-panel);
+        will-change: opacity, transform;
       }
       #${PANEL_ID}[data-visible="true"] {
         opacity: 1;
         transform: translate3d(-50%, -50%, 0) scale(var(--x-tab-switcher-visible-scale));
+      }
+      #${PANEL_ID}[data-closing="true"] {
+        transition-duration: 110ms;
+        transition-timing-function: ease;
       }
       .x-tab-switcher-list {
         display: flex;
@@ -962,6 +970,7 @@
       }
       .x-tab-switcher-card[data-active="true"] {
         transform: none;
+        animation: x-tab-switcher-card-pop var(--x-tab-switcher-motion-card);
         border-color: color-mix(in srgb, var(--x-tab-switcher-card-accent, var(--x-tab-switcher-accent)) 32%, rgba(15, 23, 42, 0.08));
         background:
           linear-gradient(
@@ -974,6 +983,17 @@
           0 4px 10px color-mix(in srgb, var(--x-tab-switcher-card-accent, var(--x-tab-switcher-accent)) 3%, transparent),
           inset 0 1px 0 rgba(255, 255, 255, 0.84),
           inset 0 0 0 1px color-mix(in srgb, var(--x-tab-switcher-card-accent, var(--x-tab-switcher-accent)) 12%, rgba(255, 255, 255, 0.72));
+      }
+      @keyframes x-tab-switcher-card-pop {
+        0% {
+          transform: scale(0.97);
+        }
+        55% {
+          transform: scale(1.02);
+        }
+        100% {
+          transform: scale(1);
+        }
       }
       .x-tab-switcher-thumb {
         position: relative;
@@ -1158,6 +1178,13 @@
         background: color-mix(in srgb, var(--x-tab-switcher-card-accent, var(--x-tab-switcher-accent)) 18%, rgba(15, 23, 42, 0.92));
       }
       @media (prefers-reduced-motion: reduce) {
+        #${PANEL_ID},
+        #${PANEL_ID}[data-closing="true"] {
+          transition: none;
+        }
+        .x-tab-switcher-card[data-active="true"] {
+          animation: none;
+        }
         .x-tab-switcher-thumb img[data-kind="thumbnail"] {
           transition: none;
         }
@@ -1365,6 +1392,15 @@
         selectedIndex = Number(index) || 0;
         applySelection();
       },
+      reveal() {
+        if (destroyed || !panel) {
+          return;
+        }
+        // Flush the hidden style first so the visibility flip below actually
+        // runs the entrance transition instead of painting the final state.
+        void panel.offsetWidth;
+        panel.dataset.visible = 'true';
+      },
       removeTabAt(index) {
         const position = Math.trunc(Number(index));
         if (!Number.isInteger(position) || position < 0 || position >= tabs.length) {
@@ -1462,7 +1498,7 @@
     panel.id = options.panelId;
     panel.setAttribute('role', 'listbox');
     panel.setAttribute('aria-label', options.ariaLabel);
-    panel.dataset.visible = 'true';
+    panel.dataset.visible = 'false';
     // Columns per row caps at 5; extra cards flow into additional grid rows
     // (7 cards = 5 + 2, 10 cards = 5 + 5), keeping every card full width.
     panel.style.setProperty('--x-tab-count', String(Math.max(1, Math.min(5, tabs.length))));
@@ -1569,6 +1605,9 @@
     }
     applySwitcherViewportPlacement(panel, window);
     applySwitcherZoomCompensation(panel, context.tabZoomFactor, getSwitcherVisualViewportScale(window));
+    // Zoom compensation lands before the entrance transition starts, so the
+    // panel grows from its final compensated size instead of animating the fix.
+    tabSwitcherView.reveal();
 
     function syncSwitcherZoomCompensation() {
       applySwitcherViewportPlacement(panel, window);
@@ -1579,6 +1618,8 @@
     switcherThemeController.start();
 
     let didRequestSwitch = false;
+    const SWITCHER_EXIT_FADE_MS = 110;
+    let didStartClosing = false;
 
     function renderSelection() {
       tabSwitcherView.updateSelection(selectedIndex);
@@ -1602,11 +1643,27 @@
     }
 
     function close() {
-      const cleanup = host._quickswitchTabSwitcherCleanup;
-      if (typeof cleanup === 'function') {
-        cleanup();
+      if (didStartClosing) {
+        return;
       }
-      host.remove();
+      didStartClosing = true;
+      // Listeners detach first so the fade-out window is inert; the panel
+      // element survives until the exit transition has run, then everything
+      // else (view, theme observer, host) goes in one cleanup.
+      detachSwitcherEventListeners();
+      if (!panel || !panel.isConnected) {
+        host.remove();
+        return;
+      }
+      panel.dataset.closing = 'true';
+      panel.dataset.visible = 'false';
+      window.setTimeout(() => {
+        const cleanup = host._quickswitchTabSwitcherCleanup;
+        if (typeof cleanup === 'function') {
+          cleanup();
+        }
+        host.remove();
+      }, SWITCHER_EXIT_FADE_MS);
     }
 
     function switchToSelected() {
@@ -1816,7 +1873,7 @@
     const switcherVisualViewport = window.visualViewport && typeof window.visualViewport.addEventListener === 'function'
       ? window.visualViewport
       : null;
-    host._quickswitchTabSwitcherCleanup = function() {
+    function detachSwitcherEventListeners() {
       window.removeEventListener('keydown', handleKeydown, true);
       window.removeEventListener('keyup', handleKeyup, true);
       window.removeEventListener('blur', handleWindowBlur, false);
@@ -1827,6 +1884,10 @@
       document.removeEventListener('visibilitychange', handleDocumentVisibilityChange, true);
       document.removeEventListener(TAB_SWITCHER_ADVANCE_EVENT, handleExternalAdvance, true);
       switcherThemeController.destroy();
+    }
+
+    host._quickswitchTabSwitcherCleanup = function() {
+      detachSwitcherEventListeners();
       tabSwitcherView.destroy();
       delete host._quickswitchTabSwitcherUpdateThumbnail;
       delete host._quickswitchTabSwitcherCommitFromShortcutRelease;
