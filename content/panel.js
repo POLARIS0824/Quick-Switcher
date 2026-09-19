@@ -1476,18 +1476,26 @@
 
   window._quickswitch_toggleTabSwitcher_2026_unique_ = function(rawContext) {
     const context = rawContext && typeof rawContext === 'object' ? rawContext : {};
-    if (!document.hasFocus()) {
+    if (!context.isBorrowedHost) {
+      if (!document.hasFocus()) {
+        try {
+          window.focus();
+        } catch (error) {
+          // Ignore focus attempts blocked by browser security
+        }
+      }
+      if (!document.hasFocus()) {
+        // A native surface (permission prompt, omnibox, another app) holds the
+        // keyboard focus; the page would never see the modifier release, so a
+        // keyboard-only panel would be dead on arrival. Route to popup window.
+        return { ok: false, reason: 'page-not-focused' };
+      }
+    } else {
       try {
         window.focus();
       } catch (error) {
         // Ignore focus attempts blocked by browser security
       }
-    }
-    if (!document.hasFocus()) {
-      // A native surface (permission prompt, omnibox, another app) holds the
-      // keyboard focus; the page would never see the modifier release, so a
-      // keyboard-only panel would be dead on arrival. Route to popup window.
-      return { ok: false, reason: 'page-not-focused' };
     }
     if (document.fullscreenElement) {
       // The fullscreen element replaces the whole viewport, so an overlay

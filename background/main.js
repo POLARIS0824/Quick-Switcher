@@ -61,6 +61,9 @@ const tabSwitcherExtensionPagePortsByTabId = new Map();
 const tabSwitcherOpeningByWindowKey = new Map();
 const tabSwitcherHostTabIdByWindowId = new Map();
 const switcherPopupHostTabIds = new Set();
+let activeSwitcherPopupWindowId = null;
+let activeSwitcherPopupTab = null;
+let creatingSwitcherPopupWindowPromise = null;
 let tabSwitcherExtensionPageRequestSeq = 0;
 let tabSwitcherStateLoaded = false;
 let tabSwitcherStateLoadPromise = null;
@@ -928,10 +931,11 @@ function beginTabSwitcherOpening(tab, source) {
   }
   const now = Date.now();
   const existing = tabSwitcherOpeningByWindowKey.get(key);
-  if (existing && existing.expiresAt > now) {
-    return null;
-  }
   if (existing) {
+    if (existing.expiresAt > now) {
+      existing.pendingAdvanceCount = (existing.pendingAdvanceCount || 0) + 1;
+      return null;
+    }
     finishTabSwitcherOpening(existing);
   }
   const opening = {
@@ -941,6 +945,7 @@ function beginTabSwitcherOpening(tab, source) {
     source: source || '',
     startedAt: now,
     expiresAt: now + TAB_SWITCHER_OPENING_GUARD_MS,
+    pendingAdvanceCount: 0,
     timer: null
   };
   opening.timer = setTimeout(() => {
@@ -1162,6 +1167,9 @@ function prepareShortcutKeyObserver(tab) {
   if (!tab || typeof tab.id !== 'number') {
     return Promise.resolve(false);
   }
+  if (tab.status === 'loading' || !canHostSwitcherSurface(tab)) {
+    return Promise.resolve(false);
+  }
   if (isTabSwitcherExtensionPageMessageTarget(tab)) {
     return Promise.resolve(true);
   }
@@ -1172,6 +1180,13 @@ function prepareShortcutKeyObserver(tab) {
     return Promise.resolve(false);
   }
   return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(false);
+      }
+    }, 50);
     try {
       chrome.scripting.executeScript({
         target: {
@@ -1180,6 +1195,11 @@ function prepareShortcutKeyObserver(tab) {
         },
         files: KEY_OBSERVER_FILES
       }, () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
         const error = chrome.runtime && chrome.runtime.lastError
           ? chrome.runtime.lastError.message || 'unknown'
           : '';
@@ -1189,7 +1209,11 @@ function prepareShortcutKeyObserver(tab) {
         resolve(!error);
       });
     } catch (error) {
-      resolve(false);
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(false);
+      }
     }
   });
 }
@@ -1552,6 +1576,11 @@ function closeSwitcherPopupWindow(senderTab) {
   if (!senderTab || typeof senderTab.id !== 'number' || !switcherPopupHostTabIds.has(senderTab.id)) {
     return;
   }
+  if (typeof senderTab.windowId === 'number' && senderTab.windowId === activeSwitcherPopupWindowId) {
+    activeSwitcherPopupWindowId = null;
+    activeSwitcherPopupTab = null;
+  }
+  switcherPopupHostTabIds.delete(senderTab.id);
   if (typeof senderTab.windowId !== 'number' ||
       !chrome || !chrome.windows || typeof chrome.windows.remove !== 'function') {
     return;
@@ -1575,57 +1604,89 @@ function openSwitcherInPopupWindow(activeTab, tabList, items, context) {
     onUnavailable();
     return;
   }
-  // Reuse a still-open switcher popup instead of stacking a second window.
+  // 1. Reuse an already open switcher popup window
+  if (activeSwitcherPopupTab && typeof activeSwitcherPopupTab.id === 'number') {
+    context.onHostReady(activeSwitcherPopupTab);
+    return;
+  }
   const existingPopupTab = (Array.isArray(tabList) ? tabList : []).find((tabItem) =>
     tabItem && typeof tabItem.id === 'number' && switcherPopupHostTabIds.has(tabItem.id)) || null;
   if (existingPopupTab) {
+    activeSwitcherPopupTab = existingPopupTab;
+    activeSwitcherPopupWindowId = existingPopupTab.windowId;
     context.onHostReady(existingPopupTab);
     return;
   }
-  const createPopup = (bounds) => {
-    chrome.windows.create({
-      type: 'popup',
-      focused: true,
-      url: SWITCHER_POPUP_HOST_URL,
-      left: bounds.left,
-      top: bounds.top,
-      width: bounds.width,
-      height: bounds.height
-    }, (createdWindow) => {
-      if (chrome.runtime && chrome.runtime.lastError) {
+  // 2. If a popup window is currently being created, reuse the in-flight promise
+  if (creatingSwitcherPopupWindowPromise) {
+    creatingSwitcherPopupWindowPromise.then((popupTab) => {
+      if (popupTab) {
+        context.onHostReady(popupTab);
+      } else {
         onUnavailable();
-        return;
       }
-      const popupTab = createdWindow && Array.isArray(createdWindow.tabs) &&
-        createdWindow.tabs[0] && typeof createdWindow.tabs[0].id === 'number'
-        ? createdWindow.tabs[0]
-        : null;
-      if (!popupTab) {
-        if (createdWindow && typeof createdWindow.id === 'number' && chrome.windows.remove) {
-          chrome.windows.remove(createdWindow.id, () => {
-            void (chrome.runtime && chrome.runtime.lastError);
-          });
-        }
-        onUnavailable();
-        return;
-      }
-      switcherPopupHostTabIds.add(popupTab.id);
-      context.onHostReady(popupTab);
     });
-  };
+    return;
+  }
   const tabCount = Array.isArray(items)
     ? Math.max(1, Math.min(10, items.filter((item) => item && typeof item.id === 'number').length))
     : 1;
-  if (typeof activeTab.windowId !== 'number' || typeof chrome.windows.get !== 'function') {
-    createPopup(computeSwitcherPopupBounds(null, tabCount));
-    return;
-  }
-  chrome.windows.get(activeTab.windowId, (baseWindow) => {
-    if (chrome.runtime && chrome.runtime.lastError) {
+
+  creatingSwitcherPopupWindowPromise = new Promise((resolve) => {
+    const createPopup = (bounds) => {
+      chrome.windows.create({
+        type: 'popup',
+        focused: true,
+        url: SWITCHER_POPUP_HOST_URL,
+        left: bounds.left,
+        top: bounds.top,
+        width: bounds.width,
+        height: bounds.height
+      }, (createdWindow) => {
+        creatingSwitcherPopupWindowPromise = null;
+        if (chrome.runtime && chrome.runtime.lastError) {
+          resolve(null);
+          return;
+        }
+        const popupTab = createdWindow && Array.isArray(createdWindow.tabs) &&
+          createdWindow.tabs[0] && typeof createdWindow.tabs[0].id === 'number'
+          ? createdWindow.tabs[0]
+          : null;
+        if (!popupTab) {
+          if (createdWindow && typeof createdWindow.id === 'number' && chrome.windows.remove) {
+            chrome.windows.remove(createdWindow.id, () => {
+              void (chrome.runtime && chrome.runtime.lastError);
+            });
+          }
+          resolve(null);
+          return;
+        }
+        activeSwitcherPopupWindowId = createdWindow.id;
+        activeSwitcherPopupTab = popupTab;
+        switcherPopupHostTabIds.add(popupTab.id);
+        resolve(popupTab);
+      });
+    };
+
+    if (typeof activeTab.windowId !== 'number' || typeof chrome.windows.get !== 'function') {
       createPopup(computeSwitcherPopupBounds(null, tabCount));
       return;
     }
-    createPopup(computeSwitcherPopupBounds(baseWindow, tabCount));
+    chrome.windows.get(activeTab.windowId, (baseWindow) => {
+      if (chrome.runtime && chrome.runtime.lastError) {
+        createPopup(computeSwitcherPopupBounds(null, tabCount));
+        return;
+      }
+      createPopup(computeSwitcherPopupBounds(baseWindow, tabCount));
+    });
+  });
+
+  creatingSwitcherPopupWindowPromise.then((popupTab) => {
+    if (popupTab) {
+      context.onHostReady(popupTab);
+    } else {
+      onUnavailable();
+    }
   });
 }
 
@@ -1685,7 +1746,8 @@ function injectTabSwitcherOnTab(hostTab, items, context) {
     advanceOnExisting: true,
     suppressInitialShortcutAdvance: context && context.source === 'commands-tab-switcher',
     shortcut: context && typeof context.shortcut === 'string' ? context.shortcut : FALLBACK_TAB_SWITCHER_SHORTCUT,
-    source: context && context.source ? context.source : ''
+    source: context && context.source ? context.source : '',
+    isBorrowedHost: Boolean(context && context.isBorrowedHost)
   });
   if (isTabSwitcherExtensionPageMessageTarget(hostTab)) {
     postTabSwitcherMessageToExtensionPage(hostTab, {
@@ -1842,6 +1904,9 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
       const activeTab = tabList.find((item) => item && item.id === tab.id) || tab;
       const finishOpeningAndArmShortcutRelease = (ok) => {
         const wasPendingCommit = Boolean(opening && opening.pendingCommitOnReady === true);
+        const pendingAdvances = (opening && typeof opening.pendingAdvanceCount === 'number')
+          ? opening.pendingAdvanceCount
+          : 0;
         finishOpening(ok);
         if (ok === true) {
           armTabSwitcherShortcutReleaseObservers(
@@ -1853,6 +1918,11 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
               ? [openingHostTab]
               : null
           );
+          if (pendingAdvances > 0 && openingHostTab) {
+            for (let i = 0; i < pendingAdvances; i++) {
+              advanceExistingTabSwitcherOnTab(openingHostTab, 'command-queue', () => {});
+            }
+          }
           if (wasPendingCommit) {
             commitOpenTabSwitcherInWindow(activeTab.windowId, 'early-release');
           }
@@ -1889,6 +1959,10 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
           return;
         }
         if (reason === 'page-fullscreen' || reason === 'page-select-popup' || reason === 'page-not-focused') {
+          if (specialHostModeCache === SPECIAL_HOST_MODE_BORROW || openingHostTabId !== activeTab.id) {
+            blindSwitchToNextMostRecentTab(tab, source);
+            return;
+          }
           // The page is showing a fullscreen element, a native dropdown, or lacks keyboard focus (e.g. omnibox);
           // host the panel in the popup window instead so it receives native OS focus and displays normally.
           appendDebugLog('fallback', `In-page overlay unavailable (${reason}), opening switcher popup window`, {
@@ -1923,12 +1997,13 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
           });
         }
       };
-      const injectOnHost = (hostTab) => {
+      const injectOnHost = (hostTab, isBorrowedHost) => {
         injectTabSwitcherOnTab(hostTab, items, {
           currentTabId: activeTab.id,
           selectedIndex,
           shortcut,
           source,
+          isBorrowedHost: Boolean(isBorrowedHost),
           onOpenComplete: handleOpenComplete
         });
       };
@@ -1955,7 +2030,7 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
             finishOpening();
             return;
           }
-          injectOnHost(hostTab);
+          injectOnHost(hostTab, true);
         });
       };
       if (canHostOnActiveTab) {
@@ -2002,6 +2077,15 @@ chrome.commands.onCommand.addListener(function(command) {
 
 if (chrome && chrome.runtime && chrome.runtime.onConnect) {
   chrome.runtime.onConnect.addListener(registerTabSwitcherExtensionPagePortConnection);
+}
+
+if (chrome && chrome.windows && chrome.windows.onRemoved) {
+  chrome.windows.onRemoved.addListener(function(windowId) {
+    if (windowId === activeSwitcherPopupWindowId) {
+      activeSwitcherPopupWindowId = null;
+      activeSwitcherPopupTab = null;
+    }
+  });
 }
 
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
