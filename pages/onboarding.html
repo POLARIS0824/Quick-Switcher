@@ -9,6 +9,13 @@
 </head>
 <body>
   <div class="container">
+    <div class="top-bar">
+      <div class="lang-switch" role="group" aria-label="Language Selector">
+        <button type="button" class="lang-btn" data-lang="zh" id="lang-btn-zh">中文</button>
+        <button type="button" class="lang-btn" data-lang="en" id="lang-btn-en">English</button>
+      </div>
+    </div>
+
     <header class="hero">
       <img src="../assets/icon-park--exchange-four.png" alt="QuickSwitcher" class="hero-icon">
       <div class="hero-title-row">
@@ -134,10 +141,10 @@
     <footer>
       <div class="footer-links">
         <a href="https://github.com/POLARIS0824/Quick-Switcher" target="_blank" rel="noreferrer">
-          <span>⭐ GitHub 仓库</span>
+          <span id="link-github">⭐ GitHub 仓库</span>
         </a>
         <a href="https://github.com/POLARIS0824/Quick-Switcher/issues" target="_blank" rel="noreferrer">
-          <span>💬 反馈建议 / 提交 Issue</span>
+          <span id="link-issues">💬 反馈建议 / 提交 Issue</span>
         </a>
       </div>
       <p id="footer-copy">QuickSwitcher · 为极速与纯粹而生</p>
