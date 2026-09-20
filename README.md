@@ -1,8 +1,8 @@
 # QuickSwitcher
 
-零依赖的 Chrome MV3 标签切换扩展：按 `Alt+Q` 弹出最近使用标签的卡片面板（带页面实时缩略图），按住 `Alt` 连按 `Q` 跳选，松开 `Alt` 提交切换，也可直接点击卡片直达目标标签。鼠标悬停不会改变键盘选取，右键卡片可直接关闭对应标签。
+零依赖、轻量高效的 Chrome MV3 标签切换扩展。以键盘优先为核心，融合流畅的鼠标交互；按 `Alt+Q` 弹出最近使用标签的卡片面板（带页面实时缩略图），按住 `Alt` 连按 `Q` 跳选，松开 `Alt` 提交切换，也可直接点击卡片直达目标标签。鼠标悬停不会改变键盘选取，右键卡片可直接关闭对应标签。
 
-本项目受 [Lumno](https://github.com/kubai087/lumno-extension) 启发：其 Alt+Q 标签切换器是本项目的直接来源——MRU tracker（`background/recent-tab-switcher.js`）为整体复制，keyup 观察器、缩略图截图管线、面板样式与主题嗅探等实现亦提取或参考自 Lumno 源码，并在其基础上做了纯键盘化改造与简化。感谢 [kubai087](https://github.com/kubai087) 的开源工作。
+本项目受 [Lumno](https://github.com/kubai087/lumno-extension) 启发：其 Alt+Q 标签切换器是本项目的直接来源——MRU tracker（`background/recent-tab-switcher.js`）为整体复制，keyup 观察器、缩略图截图管线、面板样式与主题嗅探等实现亦提取或参考自 Lumno 源码，并在其基础上做了键盘优先交互优化与轻量化简化。感谢 [kubai087](https://github.com/kubai087) 的开源工作。
 
 ## 安装
 
