@@ -13,6 +13,53 @@
     return ((normalized % length) + length) % length;
   }
 
+  function calculateNextRowIndex(currentIndex, direction, length, columns) {
+    const count = Math.trunc(Number(length));
+    const current = Math.trunc(Number(currentIndex));
+    const dir = Math.trunc(Number(direction));
+    const cols = Math.max(1, Math.trunc(Number(columns)) || 5);
+    if (!Number.isFinite(count) || count <= 0 || !Number.isFinite(current) || current < 0 || current >= count) {
+      return 0;
+    }
+    if (dir === 0) {
+      return current;
+    }
+    const totalRows = Math.ceil(count / cols);
+    if (totalRows <= 1) {
+      return current;
+    }
+    const currentRow = Math.floor(current / cols);
+    const targetRow = currentRow + (dir > 0 ? 1 : -1);
+    if (targetRow < 0 || targetRow >= totalRows) {
+      return current;
+    }
+    const targetStart = targetRow * cols;
+    const targetEnd = Math.min(count - 1, (targetRow + 1) * cols - 1);
+    const targetCount = targetEnd - targetStart + 1;
+
+    const currentStart = currentRow * cols;
+    const currentEnd = Math.min(count - 1, (currentRow + 1) * cols - 1);
+    const currentCount = currentEnd - currentStart + 1;
+
+    const colInCurrentRow = current - currentStart;
+    const currentX = colInCurrentRow + (cols - currentCount) / 2;
+    const centerMid = (cols - 1) / 2;
+
+    let bestIndex = targetStart;
+    let minDiff = Infinity;
+    for (let k = 0; k < targetCount; k += 1) {
+      const candidateIndex = targetStart + k;
+      const candidateX = k + (cols - targetCount) / 2;
+      const diff = Math.abs(candidateX - currentX);
+      const isCloser = currentX > centerMid ? diff <= minDiff : diff < minDiff;
+      if (isCloser) {
+        minDiff = diff;
+        bestIndex = candidateIndex;
+      }
+    }
+    return bestIndex;
+  }
+
   function nextSelectedIndexAfterRemoval(removedIndex, selectedIndex, length) {
     // `length` is the list size after the removal.
     if (length <= 0) {
@@ -167,6 +214,7 @@
 
   return Object.freeze({
     clampSelectedIndex,
+    calculateNextRowIndex,
     nextSelectedIndexAfterRemoval,
     normalizeAdvanceOffset,
     normalizeTabSwitcherShortcutKey,
@@ -190,6 +238,7 @@
   const TAB_SWITCHER_ADVANCE_EVENT = '_quickswitch_tab_switcher_advance_command_2026_unique_';
   const PANEL_CORE = globalThis.QuickSwitchPanelCore || {};
   const clampSelectedIndex = PANEL_CORE.clampSelectedIndex || ((index, length) => (length <= 0 ? 0 : Math.max(0, Math.min(length - 1, Number(index) || 0))));
+  const calculateNextRowIndex = PANEL_CORE.calculateNextRowIndex || ((current) => current);
   const nextSelectedIndexAfterRemoval = PANEL_CORE.nextSelectedIndexAfterRemoval ||
     ((removedIndex, selectedIndex, length) => {
       if (length <= 0) {
@@ -1856,6 +1905,14 @@
       renderSelection();
     }
 
+    function selectByRow(direction) {
+      const nextIndex = calculateNextRowIndex(selectedIndex, direction, tabs.length, 5);
+      if (nextIndex !== selectedIndex) {
+        selectedIndex = nextIndex;
+        renderSelection();
+      }
+    }
+
     function closeTabAtIndex(index) {
       if (didRequestSwitch) {
         return false;
@@ -1950,14 +2007,24 @@
         selectByOffset(1);
         return;
       }
-      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      if (event.key === 'ArrowRight') {
         stopHandledKeyEvent(event);
         selectByOffset(1);
         return;
       }
-      if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      if (event.key === 'ArrowLeft') {
         stopHandledKeyEvent(event);
         selectByOffset(-1);
+        return;
+      }
+      if (event.key === 'ArrowDown') {
+        stopHandledKeyEvent(event);
+        selectByRow(1);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        stopHandledKeyEvent(event);
+        selectByRow(-1);
         return;
       }
       if (event.key === 'Enter') {
