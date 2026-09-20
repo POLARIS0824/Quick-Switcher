@@ -2,6 +2,7 @@
   'use strict';
 
   const ENABLED_STORAGE_KEY = 'enabled';
+  const SHOW_CLOSE_BUTTON_STORAGE_KEY = 'showCloseButton';
   const SPECIAL_HOST_MODE_STORAGE_KEY = 'specialHostMode';
   const THUMBNAIL_LIMIT_STORAGE_KEY = 'thumbnailLimit';
   const THUMBNAIL_TTL_HOURS_STORAGE_KEY = 'thumbnailTtlHours';
@@ -16,24 +17,29 @@
   const DEFAULT_THUMBNAIL_LIMIT = '12';
   const DEFAULT_THUMBNAIL_TTL_HOURS = '2';
   const DEFAULT_PANEL_TAB_COUNT = '5';
+  const DEFAULT_SHOW_CLOSE_BUTTON = true;
+
   const isZh = String(navigator.language || '').toLowerCase().indexOf('zh') === 0;
   const strings = isZh ? {
     subtitle: '按 Alt+Q 弹出最近标签切换器，松开 Alt 提交切换。',
     enabledLabel: '启用 Alt+Q 标签切换器',
+    showCloseButtonLabel: '显示卡片关闭按钮 (❌)',
+    showCloseButtonDesc: '鼠标悬停卡片显现 ❌，左键点击直接关闭标签',
+    guideBtnText: '使用指南',
     modeLabel: '特殊页面（chrome://、新标签页等）切换方案',
     popupTitle: '弹窗面板',
     popupDesc: '原页面保持不动，面板在迷你弹窗中打开，Esc 取消后回到原页面',
     borrowTitle: '借用相邻标签',
     borrowDesc: '切到相邻的最近标签，面板显示在那里（与 Lumno 行为一致）',
-    thumbnailLabel: '缩略图',
+    thumbnailLabel: '缩略图缓存',
     thumbnailLimitLabel: '缓存数量上限',
     thumbnailTtlLabel: '保留时长',
-    panelLabel: '面板',
+    panelLabel: '面板外观',
     panelCountLabel: '卡片数量',
-    panelThemeLabel: '主题',
-    themeAuto: '自动（跟随页面）',
-    themeLight: '浅色',
-    themeDark: '深色',
+    panelThemeLabel: '主题外观',
+    themeAuto: '💻 自动',
+    themeLight: '☀️ 浅色',
+    themeDark: '🌙 深色',
     panelAccentLabel: '强调色',
     accentDefault: '默认蓝',
     accentViolet: '紫色',
@@ -49,22 +55,25 @@
     savedLabel: '已保存',
     saveFailedLabel: '保存失败，请重试'
   } : {
-    subtitle: 'Press Alt+Q for the recent tab switcher; release Alt to commit.',
-    enabledLabel: 'Enable the Alt+Q tab switcher',
+    subtitle: 'Press Alt+Q for recent tab switcher; release Alt to commit.',
+    enabledLabel: 'Enable Alt+Q tab switcher',
+    showCloseButtonLabel: 'Show card close button (❌)',
+    showCloseButtonDesc: 'Hover card to reveal ❌; left-click to close tab',
+    guideBtnText: 'Guide',
     modeLabel: 'Switcher on special pages (chrome://, new tab, …)',
     popupTitle: 'Popup window',
-    popupDesc: 'Original tab stays put; the panel opens in a mini popup, Esc returns to the page',
+    popupDesc: 'Original tab stays put; the panel opens in a mini popup, Esc returns to page',
     borrowTitle: 'Borrow neighbor tab',
-    borrowDesc: 'Focus the nearest recent tab and show the panel there (Lumno-style)',
-    thumbnailLabel: 'Thumbnails',
+    borrowDesc: 'Focus nearest recent tab and show the panel there (Lumno-style)',
+    thumbnailLabel: 'Thumbnails Cache',
     thumbnailLimitLabel: 'Cache limit',
     thumbnailTtlLabel: 'Keep for',
-    panelLabel: 'Panel',
+    panelLabel: 'Panel Appearance',
     panelCountLabel: 'Cards',
     panelThemeLabel: 'Theme',
-    themeAuto: 'Auto (match page)',
-    themeLight: 'Light',
-    themeDark: 'Dark',
+    themeAuto: '💻 Auto',
+    themeLight: '☀️ Light',
+    themeDark: '🌙 Dark',
     panelAccentLabel: 'Accent color',
     accentDefault: 'Default blue',
     accentViolet: 'Violet',
@@ -83,6 +92,9 @@
 
   document.getElementById('subtitle').textContent = strings.subtitle;
   document.getElementById('enabled-label').textContent = strings.enabledLabel;
+  document.getElementById('show-close-button-label').textContent = strings.showCloseButtonLabel;
+  document.getElementById('show-close-button-desc').textContent = strings.showCloseButtonDesc;
+  document.getElementById('guide-btn-text').textContent = strings.guideBtnText;
   document.getElementById('mode-label').textContent = strings.modeLabel;
   document.getElementById('popup-title').textContent = strings.popupTitle;
   document.getElementById('popup-desc').textContent = strings.popupDesc;
@@ -99,6 +111,10 @@
   document.getElementById('copy-logs-btn').textContent = strings.copyLogsBtn;
   document.getElementById('clear-logs-btn').textContent = strings.clearLogsBtn;
 
+  document.getElementById('theme-btn-auto').textContent = strings.themeAuto;
+  document.getElementById('theme-btn-light').textContent = strings.themeLight;
+  document.getElementById('theme-btn-dark').textContent = strings.themeDark;
+
   const versionEl = document.getElementById('version');
   if (chrome && chrome.runtime && typeof chrome.runtime.getManifest === 'function') {
     versionEl.textContent = `QuickSwitcher v${chrome.runtime.getManifest().version}`;
@@ -106,7 +122,17 @@
     versionEl.textContent = 'QuickSwitcher';
   }
 
+  const guideBtn = document.getElementById('guide-btn');
+  if (guideBtn) {
+    guideBtn.addEventListener('click', () => {
+      if (chrome && chrome.tabs && typeof chrome.tabs.create === 'function') {
+        chrome.tabs.create({ url: chrome.runtime.getURL('pages/onboarding.html') });
+      }
+    });
+  }
+
   const checkbox = document.getElementById('enabled');
+  const showCloseButtonCheckbox = document.getElementById('showCloseButton');
   const status = document.getElementById('status');
   const radios = Array.from(document.querySelectorAll('input[name="specialHostMode"]'));
   const optionCards = {
@@ -118,20 +144,13 @@
   const panelTabCountSelect = document.getElementById('panelTabCount');
   const panelThemeSelect = document.getElementById('panelTheme');
   const panelAccentSelect = document.getElementById('panelAccent');
-  const themeOptionLabels = [strings.themeAuto, strings.themeLight, strings.themeDark];
-  const accentOptionLabels = [
-    strings.accentDefault,
-    strings.accentViolet,
-    strings.accentTeal,
-    strings.accentOrange,
-    strings.accentPink
-  ];
-  Array.from(panelThemeSelect.options).forEach((option, index) => {
-    option.textContent = themeOptionLabels[index] || option.value;
-  });
-  Array.from(panelAccentSelect.options).forEach((option, index) => {
-    option.textContent = accentOptionLabels[index] || option.value;
-  });
+  const tabCountButtons = Array.from(document.querySelectorAll('#panel-tab-count-control .segmented-btn'));
+  const themeButtons = Array.from(document.querySelectorAll('#panel-theme-control .segmented-btn'));
+  const accentSwatches = Array.from(document.querySelectorAll('#accent-swatches .color-swatch'));
+  const logsCountBadge = document.getElementById('logs-count-badge');
+  const copyLogsBtn = document.getElementById('copy-logs-btn');
+  const clearLogsBtn = document.getElementById('clear-logs-btn');
+
   let statusTimer = null;
 
   function showStatus(text) {
@@ -150,15 +169,49 @@
       radio.checked = radio.value === mode;
     });
     Object.keys(optionCards).forEach((mode2) => {
-      optionCards[mode2].dataset.selected = mode2 === mode ? 'true' : 'false';
+      if (optionCards[mode2]) {
+        optionCards[mode2].dataset.selected = mode2 === mode ? 'true' : 'false';
+      }
+    });
+  }
+
+  function applyTabCountUI(count) {
+    const valueStr = String(count);
+    panelTabCountSelect.value = valueStr;
+    tabCountButtons.forEach((btn) => {
+      const isSelected = btn.dataset.value === valueStr;
+      btn.dataset.selected = isSelected ? 'true' : 'false';
+      btn.setAttribute('aria-checked', isSelected ? 'true' : 'false');
+    });
+  }
+
+  function applyThemeUI(theme) {
+    const validTheme = PANEL_THEME_VALUES.includes(theme) ? theme : DEFAULT_PANEL_THEME;
+    panelThemeSelect.value = validTheme;
+    themeButtons.forEach((btn) => {
+      const isSelected = btn.dataset.value === validTheme;
+      btn.dataset.selected = isSelected ? 'true' : 'false';
+      btn.setAttribute('aria-checked', isSelected ? 'true' : 'false');
+    });
+  }
+
+  function applyAccentUI(accent) {
+    const validAccent = PANEL_ACCENT_VALUES.includes(accent) ? accent : DEFAULT_PANEL_ACCENT;
+    panelAccentSelect.value = validAccent;
+    accentSwatches.forEach((swatch) => {
+      const isSelected = swatch.dataset.value === validAccent;
+      swatch.dataset.selected = isSelected ? 'true' : 'false';
+      swatch.setAttribute('aria-checked', isSelected ? 'true' : 'false');
     });
   }
 
   const storageArea = chrome && chrome.storage && chrome.storage.sync
     ? chrome.storage.sync
     : null;
+
   if (!storageArea || typeof storageArea.get !== 'function') {
     checkbox.disabled = true;
+    showCloseButtonCheckbox.disabled = true;
     radios.forEach((radio) => {
       radio.disabled = true;
     });
@@ -167,11 +220,15 @@
     panelTabCountSelect.disabled = true;
     panelThemeSelect.disabled = true;
     panelAccentSelect.disabled = true;
+    tabCountButtons.forEach((btn) => { btn.disabled = true; });
+    themeButtons.forEach((btn) => { btn.disabled = true; });
+    accentSwatches.forEach((btn) => { btn.disabled = true; });
     return;
   }
 
   storageArea.get([
     ENABLED_STORAGE_KEY,
+    SHOW_CLOSE_BUTTON_STORAGE_KEY,
     SPECIAL_HOST_MODE_STORAGE_KEY,
     THUMBNAIL_LIMIT_STORAGE_KEY,
     THUMBNAIL_TTL_HOURS_STORAGE_KEY,
@@ -181,33 +238,39 @@
   ], (result) => {
     if (chrome.runtime && chrome.runtime.lastError) {
       checkbox.checked = true;
+      showCloseButtonCheckbox.checked = DEFAULT_SHOW_CLOSE_BUTTON;
       applyMode(DEFAULT_SPECIAL_HOST_MODE);
       thumbnailLimitSelect.value = DEFAULT_THUMBNAIL_LIMIT;
       thumbnailTtlSelect.value = DEFAULT_THUMBNAIL_TTL_HOURS;
-      panelTabCountSelect.value = DEFAULT_PANEL_TAB_COUNT;
-      panelThemeSelect.value = DEFAULT_PANEL_THEME;
-      panelAccentSelect.value = DEFAULT_PANEL_ACCENT;
+      applyTabCountUI(DEFAULT_PANEL_TAB_COUNT);
+      applyThemeUI(DEFAULT_PANEL_THEME);
+      applyAccentUI(DEFAULT_PANEL_ACCENT);
       return;
     }
     checkbox.checked = !result || result[ENABLED_STORAGE_KEY] !== false;
+    showCloseButtonCheckbox.checked = !result || result[SHOW_CLOSE_BUTTON_STORAGE_KEY] !== false;
     applyMode(result && result[SPECIAL_HOST_MODE_STORAGE_KEY] === 'borrow'
       ? 'borrow'
       : DEFAULT_SPECIAL_HOST_MODE);
     thumbnailLimitSelect.value = String(Number(result && result[THUMBNAIL_LIMIT_STORAGE_KEY]) || DEFAULT_THUMBNAIL_LIMIT);
     thumbnailTtlSelect.value = String(Number(result && result[THUMBNAIL_TTL_HOURS_STORAGE_KEY]) || DEFAULT_THUMBNAIL_TTL_HOURS);
-    panelTabCountSelect.value = String(Number(result && result[PANEL_TAB_COUNT_STORAGE_KEY]) || DEFAULT_PANEL_TAB_COUNT);
-    const storedPanelTheme = result && result[PANEL_THEME_STORAGE_KEY];
-    panelThemeSelect.value = PANEL_THEME_VALUES.includes(storedPanelTheme)
-      ? storedPanelTheme
-      : DEFAULT_PANEL_THEME;
-    const storedPanelAccent = result && result[PANEL_ACCENT_STORAGE_KEY];
-    panelAccentSelect.value = PANEL_ACCENT_VALUES.includes(storedPanelAccent)
-      ? storedPanelAccent
-      : DEFAULT_PANEL_ACCENT;
+    applyTabCountUI(String(Number(result && result[PANEL_TAB_COUNT_STORAGE_KEY]) || DEFAULT_PANEL_TAB_COUNT));
+    applyThemeUI(result && result[PANEL_THEME_STORAGE_KEY]);
+    applyAccentUI(result && result[PANEL_ACCENT_STORAGE_KEY]);
   });
 
   checkbox.addEventListener('change', () => {
     storageArea.set({ [ENABLED_STORAGE_KEY]: checkbox.checked }, () => {
+      if (chrome.runtime && chrome.runtime.lastError) {
+        showStatus(strings.saveFailedLabel);
+        return;
+      }
+      showStatus(strings.savedLabel);
+    });
+  });
+
+  showCloseButtonCheckbox.addEventListener('change', () => {
+    storageArea.set({ [SHOW_CLOSE_BUTTON_STORAGE_KEY]: showCloseButtonCheckbox.checked }, () => {
       if (chrome.runtime && chrome.runtime.lastError) {
         showStatus(strings.saveFailedLabel);
         return;
@@ -232,29 +295,54 @@
     });
   });
 
-  [
-    [thumbnailLimitSelect, THUMBNAIL_LIMIT_STORAGE_KEY],
-    [thumbnailTtlSelect, THUMBNAIL_TTL_HOURS_STORAGE_KEY],
-    [panelTabCountSelect, PANEL_TAB_COUNT_STORAGE_KEY]
-  ].forEach(([select, storageKey]) => {
-    select.addEventListener('change', () => {
-      storageArea.set({ [storageKey]: Number(select.value) }, () => {
+  tabCountButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const val = Number(btn.dataset.value);
+      storageArea.set({ [PANEL_TAB_COUNT_STORAGE_KEY]: val }, () => {
         if (chrome.runtime && chrome.runtime.lastError) {
           showStatus(strings.saveFailedLabel);
           return;
         }
+        applyTabCountUI(val);
         showStatus(strings.savedLabel);
       });
     });
   });
 
-  // Theme and accent are string enums; save them verbatim, no Number cast.
+  themeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const val = btn.dataset.value;
+      storageArea.set({ [PANEL_THEME_STORAGE_KEY]: val }, () => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          showStatus(strings.saveFailedLabel);
+          return;
+        }
+        applyThemeUI(val);
+        showStatus(strings.savedLabel);
+      });
+    });
+  });
+
+  accentSwatches.forEach((swatch) => {
+    swatch.addEventListener('click', () => {
+      const val = swatch.dataset.value;
+      storageArea.set({ [PANEL_ACCENT_STORAGE_KEY]: val }, () => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          showStatus(strings.saveFailedLabel);
+          return;
+        }
+        applyAccentUI(val);
+        showStatus(strings.savedLabel);
+      });
+    });
+  });
+
   [
-    [panelThemeSelect, PANEL_THEME_STORAGE_KEY],
-    [panelAccentSelect, PANEL_ACCENT_STORAGE_KEY]
+    [thumbnailLimitSelect, THUMBNAIL_LIMIT_STORAGE_KEY],
+    [thumbnailTtlSelect, THUMBNAIL_TTL_HOURS_STORAGE_KEY]
   ].forEach(([select, storageKey]) => {
     select.addEventListener('change', () => {
-      storageArea.set({ [storageKey]: select.value }, () => {
+      storageArea.set({ [storageKey]: Number(select.value) }, () => {
         if (chrome.runtime && chrome.runtime.lastError) {
           showStatus(strings.saveFailedLabel);
           return;
@@ -272,6 +360,9 @@
       if (changes[ENABLED_STORAGE_KEY]) {
         checkbox.checked = changes[ENABLED_STORAGE_KEY].newValue !== false;
       }
+      if (changes[SHOW_CLOSE_BUTTON_STORAGE_KEY]) {
+        showCloseButtonCheckbox.checked = changes[SHOW_CLOSE_BUTTON_STORAGE_KEY].newValue !== false;
+      }
       if (changes[SPECIAL_HOST_MODE_STORAGE_KEY]) {
         applyMode(changes[SPECIAL_HOST_MODE_STORAGE_KEY].newValue === 'borrow'
           ? 'borrow'
@@ -284,21 +375,16 @@
         thumbnailTtlSelect.value = String(Number(changes[THUMBNAIL_TTL_HOURS_STORAGE_KEY].newValue) || DEFAULT_THUMBNAIL_TTL_HOURS);
       }
       if (changes[PANEL_TAB_COUNT_STORAGE_KEY]) {
-        panelTabCountSelect.value = String(Number(changes[PANEL_TAB_COUNT_STORAGE_KEY].newValue) || DEFAULT_PANEL_TAB_COUNT);
+        applyTabCountUI(changes[PANEL_TAB_COUNT_STORAGE_KEY].newValue);
       }
       if (changes[PANEL_THEME_STORAGE_KEY]) {
-        const nextTheme = changes[PANEL_THEME_STORAGE_KEY].newValue;
-        panelThemeSelect.value = PANEL_THEME_VALUES.includes(nextTheme) ? nextTheme : DEFAULT_PANEL_THEME;
+        applyThemeUI(changes[PANEL_THEME_STORAGE_KEY].newValue);
       }
       if (changes[PANEL_ACCENT_STORAGE_KEY]) {
-        const nextAccent = changes[PANEL_ACCENT_STORAGE_KEY].newValue;
-        panelAccentSelect.value = PANEL_ACCENT_VALUES.includes(nextAccent) ? nextAccent : DEFAULT_PANEL_ACCENT;
+        applyAccentUI(changes[PANEL_ACCENT_STORAGE_KEY].newValue);
       }
     });
   }
-
-  const copyLogsBtn = document.getElementById('copy-logs-btn');
-  const clearLogsBtn = document.getElementById('clear-logs-btn');
 
   function formatLogsForExport(logs) {
     if (!Array.isArray(logs) || !logs.length) {
@@ -312,6 +398,22 @@
       const details = entry && entry.details ? ` ${JSON.stringify(entry.details)}` : '';
       return `${time} ${level} ${category} ${msg}${details}`.trim();
     }).join('\n');
+  }
+
+  function refreshLogsBadge() {
+    if (!chrome || !chrome.runtime || typeof chrome.runtime.sendMessage !== 'function') {
+      return;
+    }
+    chrome.runtime.sendMessage({ action: 'getDebugLogs' }, (response) => {
+      const logs = response && Array.isArray(response.logs) ? response.logs : [];
+      const count = logs.length;
+      if (logsCountBadge) {
+        logsCountBadge.textContent = `(${count})`;
+      }
+      if (clearLogsBtn) {
+        clearLogsBtn.disabled = count === 0;
+      }
+    });
   }
 
   if (copyLogsBtn) {
@@ -346,7 +448,10 @@
       }
       chrome.runtime.sendMessage({ action: 'clearDebugLogs' }, () => {
         showStatus(strings.logsClearedLabel);
+        refreshLogsBadge();
       });
     });
   }
+
+  refreshLogsBadge();
 })();

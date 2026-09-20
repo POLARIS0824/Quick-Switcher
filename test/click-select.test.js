@@ -29,7 +29,23 @@ function createMockElement(tagName) {
     hasAttribute: () => false,
     removeAttribute() {},
     querySelector: () => null,
-    querySelectorAll: () => [],
+    querySelectorAll(selector) {
+      const results = [];
+      function search(node) {
+        for (const child of (node.children || [])) {
+          if (selector && selector.includes('.x-tab-switcher-card')) {
+            if (child.className && child.className.includes('x-tab-switcher-card')) {
+              if (!selector.includes(':not([data-removing="true"])') || child.dataset.removing !== 'true') {
+                results.push(child);
+              }
+            }
+          }
+          search(child);
+        }
+      }
+      search(el);
+      return results;
+    },
     appendChild(child) {
       children.push(child);
       child.parentNode = el;
@@ -216,3 +232,82 @@ test('window blur: panel closes when the browser window genuinely loses focus', 
   host = env.rootEl.children.find((c) => c.id === hostId);
   assert.equal(host, undefined, 'Host element SHOULD be removed when the window genuinely blurs');
 });
+
+test('showCloseButton: renders close button when true and triggers closeTab on click', () => {
+  const env = setupTestEnvironment();
+  const hostId = '_quickswitch_tab_switcher_host_2026_unique_';
+
+  const result = env.sandbox.window._quickswitch_toggleTabSwitcher_2026_unique_({
+    tabs: [
+      { id: 101, title: 'Tab 101', url: 'https://example.com/1' },
+      { id: 102, title: 'Tab 102', url: 'https://example.com/2' }
+    ],
+    selectedIndex: 0,
+    showCloseButton: true
+  });
+  assert.equal(result.ok, true);
+
+  const host = env.rootEl.children.find((c) => c.id === hostId);
+  assert.ok(host);
+  assert.ok(host.shadowRoot);
+
+  // Find close button inside shadowRoot
+  function findElementByClass(root, className) {
+    if (root.className && String(root.className).includes(className)) {
+      return root;
+    }
+    for (const child of (root.children || [])) {
+      const found = findElementByClass(child, className);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const closeBtn = findElementByClass(host.shadowRoot, 'x-tab-switcher-close-btn');
+  assert.ok(closeBtn, 'Close button should be rendered on card');
+
+  // Trigger trusted click on close button
+  closeBtn.dispatchEvent({
+    type: 'click',
+    isTrusted: true,
+    preventDefault() {},
+    stopPropagation() {},
+    stopImmediatePropagation() {}
+  });
+
+  const closeMsg = env.sentMessages.find((m) => m && m.action === 'closeTab');
+  assert.ok(closeMsg, 'closeTab action should be sent to chrome.runtime');
+  assert.equal(closeMsg.tabId, 101);
+});
+
+test('showCloseButton: does not render close button when showCloseButton is false', () => {
+  const env = setupTestEnvironment();
+  const hostId = '_quickswitch_tab_switcher_host_2026_unique_';
+
+  const result = env.sandbox.window._quickswitch_toggleTabSwitcher_2026_unique_({
+    tabs: [
+      { id: 101, title: 'Tab 101', url: 'https://example.com/1' }
+    ],
+    selectedIndex: 0,
+    showCloseButton: false
+  });
+  assert.equal(result.ok, true);
+
+  const host = env.rootEl.children.find((c) => c.id === hostId);
+  assert.ok(host && host.shadowRoot);
+
+  function findElementByClass(root, className) {
+    if (root.className && String(root.className).includes(className)) {
+      return root;
+    }
+    for (const child of (root.children || [])) {
+      const found = findElementByClass(child, className);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const closeBtn = findElementByClass(host.shadowRoot, 'x-tab-switcher-close-btn');
+  assert.equal(closeBtn, null, 'Close button should NOT be rendered when showCloseButton is false');
+});
+

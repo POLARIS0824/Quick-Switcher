@@ -30,6 +30,7 @@ const PANEL_TAB_COUNT_CHOICES = [5, 7, 10];
 const PANEL_THEME_STORAGE_KEY = 'panelTheme';
 const PANEL_THEME_CHOICES = ['auto', 'light', 'dark'];
 const PANEL_ACCENT_STORAGE_KEY = 'panelAccent';
+const SHOW_CLOSE_BUTTON_STORAGE_KEY = 'showCloseButton';
 // `default` keeps the built-in blue by emitting no override at all.
 const PANEL_ACCENT_RGB_CHOICES = {
   default: null,
@@ -70,6 +71,7 @@ let thumbnailTtlHoursCache = TAB_SWITCHER_THUMBNAIL_TTL_MS / (1000 * 60 * 60);
 let panelTabCountCache = TAB_SWITCHER_LIMIT;
 let panelThemeCache = 'auto';
 let panelAccentCache = 'default';
+let showCloseButtonCache = true;
 const tabSwitcherExtensionPagePortsByTabId = new Map();
 const tabSwitcherOpeningByWindowKey = new Map();
 const tabSwitcherHostTabIdByWindowId = new Map();
@@ -379,7 +381,8 @@ function ensureSwitcherSettingsLoaded() {
       THUMBNAIL_TTL_HOURS_STORAGE_KEY,
       PANEL_TAB_COUNT_STORAGE_KEY,
       PANEL_THEME_STORAGE_KEY,
-      PANEL_ACCENT_STORAGE_KEY
+      PANEL_ACCENT_STORAGE_KEY,
+      SHOW_CLOSE_BUTTON_STORAGE_KEY
     ], (result) => {
       if (chrome.runtime && chrome.runtime.lastError) {
         resolve(false);
@@ -392,6 +395,7 @@ function ensureSwitcherSettingsLoaded() {
       panelTabCountCache = normalizePanelTabCountChoice(result && result[PANEL_TAB_COUNT_STORAGE_KEY]);
       panelThemeCache = normalizePanelThemeChoice(result && result[PANEL_THEME_STORAGE_KEY]);
       panelAccentCache = normalizePanelAccentChoice(result && result[PANEL_ACCENT_STORAGE_KEY]);
+      showCloseButtonCache = !result || result[SHOW_CLOSE_BUTTON_STORAGE_KEY] !== false;
       applyThumbnailSettingsToTracker();
       resolve(true);
     });
@@ -430,6 +434,9 @@ if (chrome.storage && chrome.storage.onChanged) {
     }
     if (changes[PANEL_ACCENT_STORAGE_KEY]) {
       panelAccentCache = normalizePanelAccentChoice(changes[PANEL_ACCENT_STORAGE_KEY].newValue);
+    }
+    if (changes[SHOW_CLOSE_BUTTON_STORAGE_KEY]) {
+      showCloseButtonCache = changes[SHOW_CLOSE_BUTTON_STORAGE_KEY].newValue !== false;
     }
   });
 }
@@ -1786,7 +1793,8 @@ function injectTabSwitcherOnTab(hostTab, items, context) {
     source: context && context.source ? context.source : '',
     isBorrowedHost: Boolean(context && context.isBorrowedHost),
     panelTheme: panelThemeCache,
-    panelAccentRgb: getPanelAccentRgbForPayload()
+    panelAccentRgb: getPanelAccentRgbForPayload(),
+    showCloseButton: showCloseButtonCache
   });
   if (isTabSwitcherExtensionPageMessageTarget(hostTab)) {
     postTabSwitcherMessageToExtensionPage(hostTab, {
@@ -2280,11 +2288,16 @@ if (chrome && chrome.tabs && chrome.tabs.onUpdated) {
 }
 
 if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
-  chrome.runtime.onInstalled.addListener(() => {
+  chrome.runtime.onInstalled.addListener((details) => {
     // Static manifest content scripts only apply to future document loads. A
     // development-extension reload keeps existing tabs alive, so install the
     // shortcut observer there now instead of waiting for the next shortcut.
     prepareShortcutKeyObserversInOpenTabs();
+    if (details && details.reason === 'install') {
+      if (chrome.tabs && typeof chrome.tabs.create === 'function') {
+        chrome.tabs.create({ url: chrome.runtime.getURL('pages/onboarding.html') });
+      }
+    }
   });
 }
 

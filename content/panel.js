@@ -214,12 +214,14 @@
     en: Object.freeze({
       tab_switcher_title: 'Recent tabs',
       tab_switcher_untitled: 'Untitled',
-      tab_switcher_favicon_alt: 'Site icon'
+      tab_switcher_favicon_alt: 'Site icon',
+      tab_switcher_close_tab: 'Close tab'
     }),
     zh: Object.freeze({
       tab_switcher_title: '最近使用的标签页',
       tab_switcher_untitled: '无标题',
-      tab_switcher_favicon_alt: '站点图标'
+      tab_switcher_favicon_alt: '站点图标',
+      tab_switcher_close_tab: '关闭标签页'
     })
   });
   const INLINE_PLACEHOLDER_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">'
@@ -997,6 +999,28 @@
           inset 0 1px 0 rgba(255, 255, 255, 0.84),
           inset 0 0 0 1px color-mix(in srgb, var(--x-tab-switcher-card-accent, var(--x-tab-switcher-accent)) 12%, rgba(255, 255, 255, 0.72));
       }
+      .x-tab-switcher-card[data-removing="true"] {
+        opacity: 0 !important;
+        transform: scale(0.8) !important;
+        max-width: 0 !important;
+        min-width: 0 !important;
+        width: 0 !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        margin-left: 0 !important;
+        margin-right: calc(-1 * var(--x-tab-switcher-gap)) !important;
+        border-width: 0 !important;
+        overflow: hidden !important;
+        pointer-events: none !important;
+        transition:
+          opacity 130ms ease,
+          transform 130ms ease,
+          width 150ms cubic-bezier(0.2, 0, 0, 1),
+          max-width 150ms cubic-bezier(0.2, 0, 0, 1),
+          min-width 150ms cubic-bezier(0.2, 0, 0, 1),
+          padding 150ms cubic-bezier(0.2, 0, 0, 1),
+          margin 150ms cubic-bezier(0.2, 0, 0, 1) !important;
+      }
       @keyframes x-tab-switcher-card-pop {
         0% {
           transform: scale(0.97);
@@ -1015,6 +1039,48 @@
         overflow: hidden;
         border-radius: var(--x-tab-switcher-radius-thumb);
         background: color-mix(in srgb, var(--x-tab-switcher-card-accent, var(--x-tab-switcher-accent)) 14%, rgba(248, 250, 252, 0.94));
+      }
+      #${PANEL_ID} .x-tab-switcher-close-btn {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        z-index: 5;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15, 23, 42, 0.68);
+        color: #ffffff;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+        cursor: pointer !important;
+        pointer-events: auto !important;
+        opacity: 0;
+        transform: scale(0.85);
+        transition: opacity 120ms ease, transform 120ms ease, background-color 100ms ease;
+      }
+      #${PANEL_ID} .x-tab-switcher-close-btn * {
+        pointer-events: none !important;
+      }
+      #${PANEL_ID} .x-tab-switcher-card:hover .x-tab-switcher-close-btn,
+      #${PANEL_ID} .x-tab-switcher-close-btn:focus-visible {
+        opacity: 1;
+        transform: scale(1);
+      }
+      #${PANEL_ID} .x-tab-switcher-close-btn:hover {
+        background: #ef4444 !important;
+        color: #ffffff !important;
+        transform: scale(1.15);
+      }
+      #${PANEL_ID}[data-theme="dark"] .x-tab-switcher-close-btn {
+        background: rgba(30, 41, 59, 0.85);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+      }
+      #${PANEL_ID}[data-theme="dark"] .x-tab-switcher-close-btn:hover {
+        background: #ef4444 !important;
       }
       .x-tab-switcher-thumb::after {
         content: "";
@@ -1198,6 +1264,12 @@
         .x-tab-switcher-card[data-active="true"] {
           animation: none;
         }
+        .x-tab-switcher-card[data-removing="true"] {
+          transition: none !important;
+        }
+        .x-tab-switcher-close-btn {
+          transition: none !important;
+        }
         .x-tab-switcher-thumb img[data-kind="thumbnail"] {
           transition: none;
         }
@@ -1320,7 +1392,11 @@
             event.stopImmediatePropagation();
           }
           event.stopPropagation();
-          options.onCardSelect(index);
+          const currentButtons = getButtons();
+          const targetIndex = currentButtons.indexOf(button);
+          if (targetIndex !== -1) {
+            options.onCardSelect(targetIndex);
+          }
         });
       }
       if (typeof options.onCardClose === 'function') {
@@ -1333,7 +1409,11 @@
             event.stopImmediatePropagation();
           }
           event.stopPropagation();
-          options.onCardClose(index);
+          const currentButtons = getButtons();
+          const targetIndex = currentButtons.indexOf(button);
+          if (targetIndex !== -1) {
+            options.onCardClose(targetIndex);
+          }
         });
       }
 
@@ -1346,6 +1426,43 @@
         thumb.dataset.thumbnailReason = thumbnailReason;
       }
       buildThumbChildren(thumb, tab, '', false);
+
+      if (options.showCloseButton !== false && typeof options.onCardClose === 'function') {
+        const closeBtn = doc.createElement('span');
+        closeBtn.className = 'x-tab-switcher-close-btn';
+        closeBtn.setAttribute('role', 'button');
+        closeBtn.setAttribute('tabindex', '-1');
+        const closeLabel = options.getMessage('tab_switcher_close_tab', 'Close tab');
+        closeBtn.setAttribute('aria-label', closeLabel);
+        closeBtn.title = closeLabel;
+        closeBtn.innerHTML = '<svg viewBox="0 0 16 16" width="10" height="10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"><line x1="3.5" y1="3.5" x2="12.5" y2="12.5"></line><line x1="12.5" y1="3.5" x2="3.5" y2="12.5"></line></svg>';
+        closeBtn.addEventListener('mousedown', (event) => {
+          if (!event || event.isTrusted !== true) {
+            return;
+          }
+          event.preventDefault();
+          if (typeof event.stopImmediatePropagation === 'function') {
+            event.stopImmediatePropagation();
+          }
+          event.stopPropagation();
+        });
+        closeBtn.addEventListener('click', (event) => {
+          if (!event || event.isTrusted !== true) {
+            return;
+          }
+          event.preventDefault();
+          if (typeof event.stopImmediatePropagation === 'function') {
+            event.stopImmediatePropagation();
+          }
+          event.stopPropagation();
+          const currentButtons = getButtons();
+          const targetIndex = currentButtons.indexOf(button);
+          if (targetIndex !== -1) {
+            options.onCardClose(targetIndex);
+          }
+        });
+        thumb.appendChild(closeBtn);
+      }
 
       const meta = doc.createElement('div');
       meta.className = 'x-tab-switcher-meta';
@@ -1369,7 +1486,7 @@
 
     function getButtons() {
       return panel
-        ? Array.from(panel.querySelectorAll('.x-tab-switcher-card'))
+        ? Array.from(panel.querySelectorAll('.x-tab-switcher-card:not([data-removing="true"])'))
         : [];
     }
 
@@ -1420,11 +1537,25 @@
       },
       removeTabAt(index) {
         const position = Math.trunc(Number(index));
+        const currentButtons = getButtons();
         if (!Number.isInteger(position) || position < 0 || position >= tabs.length) {
           return false;
         }
+        const targetCard = currentButtons[position] || null;
         tabs.splice(position, 1);
-        renderCards();
+        if (!targetCard) {
+          renderCards();
+          return true;
+        }
+        targetCard.dataset.removing = 'true';
+        panel.style.setProperty('--x-tab-count', String(Math.max(1, Math.min(5, tabs.length))));
+        const removeTimer = win.setTimeout(() => {
+          timers.delete(removeTimer);
+          if (targetCard.parentNode) {
+            targetCard.parentNode.removeChild(targetCard);
+          }
+        }, 160);
+        timers.add(removeTimer);
         return true;
       },
       updateThumbnail(update) {
@@ -1600,6 +1731,7 @@
       panelId: PANEL_ID,
       tabs,
       selectedIndex,
+      showCloseButton: context.showCloseButton !== false,
       ariaLabel: getMessage('tab_switcher_title', 'Recent tabs'),
       sanitizeText,
       getHostLabel,

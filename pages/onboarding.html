@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>欢迎使用 QuickSwitcher - 使用指南</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="../assets/icon-park--exchange-four.png">
+  <link rel="stylesheet" href="onboarding.css">
+</head>
+<body>
+  <div class="container">
+    <header class="hero">
+      <img src="../assets/icon-park--exchange-four.png" alt="QuickSwitcher" class="hero-icon">
+      <div class="hero-title-row">
+        <h1>QuickSwitcher</h1>
+        <span class="version-badge" id="version-badge">v1.5.1</span>
+      </div>
+      <p class="hero-subtitle" id="hero-subtitle">
+        极速、优雅的键盘优先最近标签切换器，配备实时网页缩略图与自适应毛玻璃面板。
+      </p>
+    </header>
+
+    <!-- 核心操作快捷键 -->
+    <section class="card">
+      <h2 class="card-title">
+        <span>⌨️</span>
+        <span id="title-shortcuts">操作快捷键</span>
+      </h2>
+      <div class="shortcuts-grid">
+        <div class="shortcut-item">
+          <div class="shortcut-desc">
+            <span class="shortcut-action" id="action-open">呼出面板 / 步进切换</span>
+            <span class="shortcut-detail" id="detail-open">按住 Alt 保持面板开启，继续点按 Q 切换下一个</span>
+          </div>
+          <div class="keys">
+            <kbd>Alt</kbd> + <kbd>Q</kbd>
+          </div>
+        </div>
+
+        <div class="shortcut-item">
+          <div class="shortcut-desc">
+            <span class="shortcut-action" id="action-nav">自由方向导航</span>
+            <span class="shortcut-detail" id="detail-nav">也可使用 Tab / Shift+Tab 向前向后选择</span>
+          </div>
+          <div class="keys">
+            <kbd>←</kbd> <kbd>→</kbd> / <kbd>↑</kbd> <kbd>↓</kbd>
+          </div>
+        </div>
+
+        <div class="shortcut-item">
+          <div class="shortcut-desc">
+            <span class="shortcut-action" id="action-commit">提交并切换标签</span>
+            <span class="shortcut-detail" id="detail-commit">松开 Alt 修饰键，或者直接回车</span>
+          </div>
+          <div class="keys">
+            <span id="label-release-alt">松开</span> <kbd>Alt</kbd> / <kbd>Enter</kbd>
+          </div>
+        </div>
+
+        <div class="shortcut-item">
+          <div class="shortcut-desc">
+            <span class="shortcut-action" id="action-close">关闭标签页</span>
+            <span class="shortcut-detail" id="detail-close">鼠标悬停卡片右上角，左键点击 ❌ 即可直接关闭；或使用键盘 Delete / Backspace</span>
+          </div>
+          <div class="keys">
+            <kbd id="label-close-key">左键 ❌</kbd> / <kbd>Delete</kbd>
+          </div>
+        </div>
+
+        <div class="shortcut-item">
+          <div class="shortcut-desc">
+            <span class="shortcut-action" id="action-cancel">取消并关闭面板</span>
+            <span class="shortcut-detail" id="detail-cancel">放弃切换，保持停留在当前标签页</span>
+          </div>
+          <div class="keys">
+            <kbd>Esc</kbd>
+          </div>
+        </div>
+
+        <div class="shortcut-item">
+          <div class="shortcut-desc">
+            <span class="shortcut-action" id="action-click">鼠标直接切换</span>
+            <span class="shortcut-detail" id="detail-click">直接点击任意卡片即可跳转至对应标签</span>
+          </div>
+          <div class="keys">
+            <kbd id="label-click">鼠标左键</kbd>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 特色功能介绍 -->
+    <section class="card">
+      <h2 class="card-title">
+        <span>✨</span>
+        <span id="title-features">功能特性</span>
+      </h2>
+      <div class="features-grid">
+        <div class="feature-item">
+          <span class="feature-icon">⚡</span>
+          <span class="feature-title" id="feat-1-title">实时网页缩略图</span>
+          <span class="feature-desc" id="feat-1-desc">智能捕获最近访问页面的即时快照，即使打开数十个标签也能凭借画面瞬间定位。</span>
+        </div>
+
+        <div class="feature-item">
+          <span class="feature-icon">🎨</span>
+          <span class="feature-title" id="feat-2-title">自适应毛玻璃设计</span>
+          <span class="feature-desc" id="feat-2-desc">无缝适配系统及所在网页的深浅主题，提供 5 款精心调配的强调色与 3 档卡片密度。</span>
+        </div>
+
+        <div class="feature-item">
+          <span class="feature-icon">🛡️</span>
+          <span class="feature-title" id="feat-3-title">特殊页面无缝支持</span>
+          <span class="feature-desc" id="feat-3-desc">在 Chrome 内部页、新建标签页或全屏视频等受限场景下，通过迷你弹窗保障一致体验。</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 自定义快捷键引导 -->
+    <section class="card">
+      <div class="custom-shortcut-box">
+        <div class="custom-shortcut-info">
+          <strong id="custom-title">喜欢使用 Ctrl+Q 或 Alt+Tab？</strong>
+          <span id="custom-desc">Chrome 允许您在原生扩展快捷键页面随时调整或重新绑定该快捷键。</span>
+        </div>
+        <button type="button" class="action-btn" id="open-shortcuts-btn">
+          <span>⚙️</span>
+          <span id="btn-shortcuts-text">配置快捷键</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- 页脚与链接 -->
+    <footer>
+      <div class="footer-links">
+        <a href="https://github.com/POLARIS0824/Quick-Switcher" target="_blank" rel="noreferrer">
+          <span>⭐ GitHub 仓库</span>
+        </a>
+        <a href="https://github.com/POLARIS0824/Quick-Switcher/issues" target="_blank" rel="noreferrer">
+          <span>💬 反馈建议 / 提交 Issue</span>
+        </a>
+      </div>
+      <p id="footer-copy">QuickSwitcher · 为极速与纯粹而生</p>
+    </footer>
+  </div>
+
+  <script src="../content/panel.js"></script>
+  <script src="page-bridge.js"></script>
+  <script src="onboarding.js"></script>
+</body>
+</html>
