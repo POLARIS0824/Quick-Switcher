@@ -1773,6 +1773,10 @@
     style.textContent = buildStyles();
     shadow.appendChild(style);
 
+    let didRequestSwitch = false;
+    let didStartClosing = false;
+    const SWITCHER_EXIT_FADE_MS = 110;
+
     let selectedIndex = clampSelectedIndex(context.selectedIndex, tabs.length);
     const tabSwitcherView = createTabSwitcherView({
       document,
@@ -1788,11 +1792,17 @@
       normalizeAccentCss,
       getThumbnailStatus,
       onCardSelect: (index) => {
+        if (didStartClosing || didRequestSwitch) {
+          return;
+        }
         selectedIndex = clampSelectedIndex(index, tabs.length);
         renderSelection();
         switchToSelected();
       },
       onCardClose: (index) => {
+        if (didStartClosing || didRequestSwitch) {
+          return;
+        }
         closeTabAtIndex(index);
       }
     });
@@ -1821,10 +1831,6 @@
 
     const switcherThemeController = createSwitcherThemeController(panel);
     switcherThemeController.start();
-
-    let didRequestSwitch = false;
-    const SWITCHER_EXIT_FADE_MS = 110;
-    let didStartClosing = false;
 
     function renderSelection() {
       tabSwitcherView.updateSelection(selectedIndex);
@@ -1881,8 +1887,8 @@
         return false;
       }
       didRequestSwitch = true;
+      close();
       if (!chromeApi || !chromeApi.runtime || typeof chromeApi.runtime.sendMessage !== 'function') {
-        close();
         return true;
       }
       try {
@@ -1892,20 +1898,25 @@
           windowId: typeof selected.windowId === 'number' ? selected.windowId : null
         }, () => {
           void (chromeApi.runtime && chromeApi.runtime.lastError);
-          close();
         });
       } catch (error) {
-        close();
+        // Stale extension context.
       }
       return true;
     }
 
     function selectByOffset(offset) {
+      if (didStartClosing || didRequestSwitch) {
+        return;
+      }
       selectedIndex = clampSelectedIndex(selectedIndex + offset, tabs.length);
       renderSelection();
     }
 
     function selectByRow(direction) {
+      if (didStartClosing || didRequestSwitch) {
+        return;
+      }
       const nextIndex = calculateNextRowIndex(selectedIndex, direction, tabs.length, 5);
       if (nextIndex !== selectedIndex) {
         selectedIndex = nextIndex;
@@ -1916,7 +1927,7 @@
     const pendingCloseTabIds = new Set();
 
     function closeTabAtIndex(index) {
-      if (didRequestSwitch) {
+      if (didRequestSwitch || didStartClosing) {
         return false;
       }
       const position = Math.trunc(Number(index));
@@ -1955,6 +1966,7 @@
         if (curIdx < 0) {
           return;
         }
+        tabs.splice(curIdx, 1);
         tabSwitcherView.removeTabAt(curIdx);
         selectedIndex = nextSelectedIndexAfterRemoval(curIdx, selectedIndex, tabs.length);
         if (!tabs.length) {
@@ -2006,6 +2018,9 @@
     }
 
     function advanceSelectionFromShortcut(offset) {
+      if (didStartClosing || didRequestSwitch) {
+        return false;
+      }
       if (shortcutSuppressor) {
         shortcutSuppressor.markExternalAdvance();
       }
@@ -2020,11 +2035,14 @@
       return switchToSelected();
     };
     host._quickswitchTabSwitcherUpdateThumbnail = function(update) {
+      if (didStartClosing) {
+        return { ok: false, reason: 'panel-closing' };
+      }
       return tabSwitcherView.updateThumbnail(update);
     };
 
     function handleExternalAdvance(event) {
-      if (didRequestSwitch) {
+      if (didRequestSwitch || didStartClosing) {
         return;
       }
       const detail = event && event.detail && typeof event.detail === 'object' ? event.detail : {};

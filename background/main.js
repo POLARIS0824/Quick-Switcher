@@ -76,6 +76,7 @@ const tabSwitcherExtensionPagePortsByTabId = new Map();
 const tabSwitcherOpeningByWindowKey = new Map();
 const tabSwitcherHostTabIdByWindowId = new Map();
 const switcherPopupHostTabIds = new Set();
+const internalSwitcherHostActivationTabIds = new Set();
 let activeSwitcherPopupWindowId = null;
 let activeSwitcherPopupTab = null;
 let creatingSwitcherPopupWindowPromise = null;
@@ -2095,8 +2096,10 @@ function triggerTabSwitcherForTab(tab, source, commandObservedAt) {
         }
         openingHostTabId = hostTab.id;
         openingHostTab = hostTab;
+        internalSwitcherHostActivationTabIds.add(hostTab.id);
         focusWindowAndActivateTab(hostTab.id, hostTab.windowId, (result) => {
           if (!result || result.ok === false) {
+            internalSwitcherHostActivationTabIds.delete(hostTab.id);
             finishOpening();
             return;
           }
@@ -2192,6 +2195,17 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
           appendDebugLog('switch', `Switch result`, { tabId: request.tabId, ok: result && result.ok });
           console.info('QuickSwitcher: switchToTab', request.tabId, result);
           closeSwitcherPopupWindow(senderTab);
+          if (result && result.ok) {
+            if (chrome.tabs && typeof chrome.tabs.get === 'function') {
+              chrome.tabs.get(request.tabId, (targetTab) => {
+                if (!chrome.runtime || !chrome.runtime.lastError) {
+                  if (targetTab) {
+                    recordRecentSwitcherTab(targetTab);
+                  }
+                }
+              });
+            }
+          }
           sendResponse(result || { ok: false });
         }
       );
@@ -2219,8 +2233,8 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
       if (senderTab && typeof senderTab.id === 'number') {
         const at = Number(request && request.at);
         const reportedAt = Number.isFinite(at) ? at : Date.now();
-        recordRecentSwitcherTab(senderTab, reportedAt);
         if (!request || request.reason !== 'panel') {
+          recordRecentSwitcherTab(senderTab, reportedAt);
           scheduleSwitcherThumbnailCapture(senderTab, 'visible');
         }
       }
@@ -2244,6 +2258,9 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
 if (chrome && chrome.tabs && chrome.tabs.onActivated) {
   chrome.tabs.onActivated.addListener((activeInfo) => {
     if (!activeInfo || typeof activeInfo.tabId !== 'number') {
+      return;
+    }
+    if (internalSwitcherHostActivationTabIds.delete(activeInfo.tabId)) {
       return;
     }
     if (chrome.tabs && typeof chrome.tabs.get === 'function') {
@@ -2287,6 +2304,7 @@ if (chrome && chrome.windows && chrome.windows.onFocusChanged) {
 if (chrome && chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener((tabId) => {
     switcherPopupHostTabIds.delete(tabId);
+    internalSwitcherHostActivationTabIds.delete(tabId);
     keyObserverInjectedTabIds.delete(tabId);
     keyObserverInFlightByTabId.delete(tabId);
     removeRecentSwitcherTab(tabId);

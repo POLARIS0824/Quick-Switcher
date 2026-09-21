@@ -208,8 +208,8 @@ test('reportTabVisible with reason panel does not schedule thumbnail capture', (
     if (senderTab && typeof senderTab.id === 'number') {
       const at = Number(request && request.at);
       const reportedAt = Number.isFinite(at) ? at : Date.now();
-      mockRecordRecentSwitcherTab(senderTab, reportedAt);
       if (!request || request.reason !== 'panel') {
+        mockRecordRecentSwitcherTab(senderTab, reportedAt);
         mockScheduleSwitcherThumbnailCapture(senderTab, 'visible');
       }
     }
@@ -219,11 +219,12 @@ test('reportTabVisible with reason panel does not schedule thumbnail capture', (
   const senderTab = { id: 42, windowId: 1, url: 'https://example.com' };
   handleReportTabVisible(senderTab, { action: 'reportTabVisible', reason: 'panel', at: 12345 });
 
-  assert.equal(recordedTab.id, 42, 'MRU/recentTab must still be recorded');
+  assert.equal(recordedTab, null, 'MRU/recentTab must not be recorded for reason panel');
   assert.equal(scheduledTab, null, 'Thumbnail capture must not be scheduled for reason panel');
 
   // 2. With reason: other / undefined
   handleReportTabVisible(senderTab, { action: 'reportTabVisible', at: 12346 });
+  assert.equal(recordedTab.id, 42, 'MRU/recentTab should be recorded for normal visible reports');
   assert.equal(scheduledTab.id, 42, 'Thumbnail capture should be scheduled for normal visible reports');
   assert.equal(scheduledReason, 'visible');
 });
