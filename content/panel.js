@@ -1913,6 +1913,8 @@
       }
     }
 
+    const pendingCloseTabIds = new Set();
+
     function closeTabAtIndex(index) {
       if (didRequestSwitch) {
         return false;
@@ -1925,28 +1927,81 @@
       if (!target || typeof target.id !== 'number') {
         return false;
       }
-      // Send before mutating local state: in the page-overlay mode, closing
-      // the host tab tears this script down mid-call.
-      if (chromeApi && chromeApi.runtime && typeof chromeApi.runtime.sendMessage === 'function') {
-        try {
-          chromeApi.runtime.sendMessage({
-            action: 'closeTab',
-            tabId: target.id
-          }, () => {
-            void (chromeApi.runtime && chromeApi.runtime.lastError);
-          });
-        } catch (error) {
-          // A stale extension context means the panel is going away anyway.
+      if (pendingCloseTabIds.has(target.id)) {
+        return false;
+      }
+      pendingCloseTabIds.add(target.id);
+      const currentButtons = tabSwitcherView.buttons;
+      const targetCard = currentButtons ? currentButtons[position] : null;
+      if (targetCard) {
+        targetCard.dataset.closing = 'true';
+      }
+
+      function revertClosing() {
+        pendingCloseTabIds.delete(target.id);
+        const curIdx = tabs.findIndex((t) => t && t.id === target.id);
+        if (curIdx >= 0) {
+          const btns = tabSwitcherView.buttons;
+          const card = btns ? btns[curIdx] : null;
+          if (card) {
+            delete card.dataset.closing;
+          }
         }
       }
-      tabs.splice(position, 1);
-      tabSwitcherView.removeTabAt(position);
-      selectedIndex = nextSelectedIndexAfterRemoval(position, selectedIndex, tabs.length);
-      if (!tabs.length) {
-        close();
+
+      function finalizeClosing() {
+        pendingCloseTabIds.delete(target.id);
+        const curIdx = tabs.findIndex((t) => t && t.id === target.id);
+        if (curIdx < 0) {
+          return;
+        }
+        tabSwitcherView.removeTabAt(curIdx);
+        selectedIndex = nextSelectedIndexAfterRemoval(curIdx, selectedIndex, tabs.length);
+        if (!tabs.length) {
+          close();
+          return;
+        }
+        renderSelection();
+      }
+
+      if (!chromeApi || !chromeApi.runtime || typeof chromeApi.runtime.sendMessage !== 'function') {
+        finalizeClosing();
         return true;
       }
-      renderSelection();
+
+      let settled = false;
+      const safetyTimer = window.setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          revertClosing();
+        }
+      }, 5000);
+
+      try {
+        chromeApi.runtime.sendMessage({
+          action: 'closeTab',
+          tabId: target.id
+        }, (response) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          window.clearTimeout(safetyTimer);
+          const error = chromeApi.runtime && chromeApi.runtime.lastError;
+          const reason = String((response && response.reason) || (error && error.message) || '').toLowerCase();
+          if ((response && response.ok === true) || reason.includes('no tab with id')) {
+            finalizeClosing();
+          } else {
+            revertClosing();
+          }
+        });
+      } catch (error) {
+        if (!settled) {
+          settled = true;
+          window.clearTimeout(safetyTimer);
+          revertClosing();
+        }
+      }
       return true;
     }
 

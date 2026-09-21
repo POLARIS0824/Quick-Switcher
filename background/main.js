@@ -2180,7 +2180,13 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         return;
       }
       chrome.tabs.remove(request.tabId, () => {
-        void (chrome.runtime && chrome.runtime.lastError);
+        if (chrome.runtime && chrome.runtime.lastError) {
+          sendResponse({
+            ok: false,
+            reason: chrome.runtime.lastError.message || 'tabs-remove-failed'
+          });
+          return;
+        }
         sendResponse({ ok: true });
       });
       return true;
