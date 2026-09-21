@@ -1206,6 +1206,32 @@ function getDefaultSwitcherSelectedIndex(items, currentTabId) {
 // predate it. Remember successful injections so repeat shortcut presses do
 // not pay an all-frames executeScript round trip every time.
 const keyObserverInjectedTabIds = new Set();
+const keyObserverInFlightByTabId = new Map();
+
+function raceWithTimeout(promise, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(false);
+      }
+    }, timeoutMs);
+    promise.then((result) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      }
+    }).catch(() => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(false);
+      }
+    });
+  });
+}
 
 function prepareShortcutKeyObserver(tab) {
   if (!tab || typeof tab.id !== 'number') {
@@ -1223,14 +1249,13 @@ function prepareShortcutKeyObserver(tab) {
   if (!chrome || !chrome.scripting || typeof chrome.scripting.executeScript !== 'function') {
     return Promise.resolve(false);
   }
-  return new Promise((resolve) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        resolve(false);
-      }
-    }, 50);
+
+  const inFlightPromise = keyObserverInFlightByTabId.get(tab.id);
+  if (inFlightPromise) {
+    return raceWithTimeout(inFlightPromise, 50);
+  }
+
+  const injectionPromise = new Promise((resolveInjection) => {
     try {
       chrome.scripting.executeScript({
         target: {
@@ -1239,27 +1264,25 @@ function prepareShortcutKeyObserver(tab) {
         },
         files: KEY_OBSERVER_FILES
       }, () => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timer);
         const error = chrome.runtime && chrome.runtime.lastError
           ? chrome.runtime.lastError.message || 'unknown'
           : '';
         if (!error) {
           keyObserverInjectedTabIds.add(tab.id);
+          resolveInjection(true);
+        } else {
+          resolveInjection(false);
         }
-        resolve(!error);
       });
     } catch (error) {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        resolve(false);
-      }
+      resolveInjection(false);
     }
+  }).finally(() => {
+    keyObserverInFlightByTabId.delete(tab.id);
   });
+
+  keyObserverInFlightByTabId.set(tab.id, injectionPromise);
+  return raceWithTimeout(injectionPromise, 50);
 }
 
 function prepareShortcutKeyObserversInOpenTabs() {
@@ -2265,6 +2288,7 @@ if (chrome && chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener((tabId) => {
     switcherPopupHostTabIds.delete(tabId);
     keyObserverInjectedTabIds.delete(tabId);
+    keyObserverInFlightByTabId.delete(tabId);
     removeRecentSwitcherTab(tabId);
     Array.from(tabSwitcherHostTabIdByWindowId.entries()).forEach(([windowId, hostTabId]) => {
       if (hostTabId === tabId) {
