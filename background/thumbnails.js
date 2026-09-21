@@ -374,15 +374,54 @@
       return queued;
     }
 
+    function verifyTabIsActiveInWindow(tabId, windowId) {
+      return new Promise((resolve) => {
+        if (!chromeApi || !chromeApi.tabs) {
+          resolve(true);
+          return;
+        }
+        if (typeof chromeApi.tabs.query === 'function') {
+          chromeApi.tabs.query({ active: true, windowId }, (activeTabs) => {
+            if (chromeApi.runtime && chromeApi.runtime.lastError) {
+              resolve(false);
+              return;
+            }
+            const isActive = Array.isArray(activeTabs) &&
+              activeTabs.some((t) => t && t.id === tabId);
+            resolve(isActive);
+          });
+          return;
+        }
+        if (typeof chromeApi.tabs.get === 'function') {
+          chromeApi.tabs.get(tabId, (tab) => {
+            if (chromeApi.runtime && chromeApi.runtime.lastError) {
+              resolve(false);
+              return;
+            }
+            resolve(Boolean(tab && tab.id === tabId && tab.active === true && tab.windowId === windowId));
+          });
+          return;
+        }
+        resolve(true);
+      });
+    }
+
     // Between the initial active-tab check and the actual captureVisibleTab
     // call sit several async hops (state query, panel-hide paint wait); the
     // visible tab can change underneath (e.g. the borrow-host flow switches
     // focus right after starting a pre-capture). Re-read the tab at storage
     // time so pixels are never attributed to a tab that is no longer visible.
-    function verifyCapturedTabStillActive(tabId, resolvedTab) {
+    function verifyCapturedTabStillActive(tabId, resolvedTab, captureWindowId) {
       return new Promise((resolve) => {
         if (!chromeApi || !chromeApi.tabs || typeof chromeApi.tabs.get !== 'function') {
-          resolve(resolvedTab);
+          if (resolvedTab &&
+              resolvedTab.id === tabId &&
+              resolvedTab.active === true &&
+              (typeof captureWindowId !== 'number' || resolvedTab.windowId === captureWindowId)) {
+            resolve(resolvedTab);
+          } else {
+            resolve(null);
+          }
           return;
         }
         chromeApi.tabs.get(tabId, (freshTab) => {
@@ -390,8 +429,28 @@
             resolve(null);
             return;
           }
-          if (!freshTab || typeof freshTab.id !== 'number' || freshTab.active !== true) {
+          if (!freshTab ||
+              typeof freshTab.id !== 'number' ||
+              freshTab.id !== tabId ||
+              freshTab.active !== true ||
+              (typeof captureWindowId === 'number' && freshTab.windowId !== captureWindowId)) {
             resolve(null);
+            return;
+          }
+          if (typeof chromeApi.tabs.query === 'function') {
+            chromeApi.tabs.query({ active: true, windowId: captureWindowId }, (activeTabs) => {
+              if (chromeApi.runtime && chromeApi.runtime.lastError) {
+                resolve(null);
+                return;
+              }
+              const isStillActiveInWindow = Array.isArray(activeTabs) &&
+                activeTabs.some((t) => t && t.id === tabId);
+              if (!isStillActiveInWindow) {
+                resolve(null);
+                return;
+              }
+              resolve(freshTab);
+            });
             return;
           }
           resolve(freshTab);
@@ -401,9 +460,8 @@
 
     function captureSwitcherThumbnailForTab(tab, reason) {
       const tabId = tab && typeof tab.id === 'number' ? tab.id : null;
-      const windowId = tab && typeof tab.windowId === 'number' ? tab.windowId : null;
       clearScheduledSwitcherThumbnailCapture(tabId);
-      if (typeof tabId !== 'number' || typeof windowId !== 'number') {
+      if (typeof tabId !== 'number') {
         logSwitcherThumbnailCaptureFailure(tab, 'invalid-tab', reason);
         return Promise.resolve(false);
       }
@@ -423,89 +481,104 @@
           resolve(false);
           return;
         }
-        shouldSkipSwitcherThumbnailCaptureForOpenSwitcher(resolvedTab, reason).then((shouldSkip) => {
-          if (shouldSkip) {
-            logSwitcherThumbnailCaptureFailure(resolvedTab, 'tab-switcher-open', reason);
+        const captureWindowId = resolvedTab && typeof resolvedTab.windowId === 'number'
+          ? resolvedTab.windowId
+          : (tab && typeof tab.windowId === 'number' ? tab.windowId : null);
+        if (typeof captureWindowId !== 'number') {
+          logSwitcherThumbnailCaptureFailure(resolvedTab || tab, 'invalid-tab', reason);
+          resolve(false);
+          return;
+        }
+        verifyTabIsActiveInWindow(tabId, captureWindowId).then((isActiveInWindow) => {
+          if (!isActiveInWindow) {
+            logSwitcherThumbnailCaptureFailure(resolvedTab || tab, 'inactive-tab', reason);
             resolve(false);
             return;
           }
-          lastCaptureAt = Date.now();
-          withTabSwitcherHiddenForCapture(resolvedTab, () => new Promise((captureResolve) => {
-            try {
-              chromeApi.tabs.captureVisibleTab(windowId, {
-                format: 'jpeg',
-                quality: CAPTURE_JPEG_QUALITY
-              }, (dataUrl) => {
-                if (chromeApi.runtime && chromeApi.runtime.lastError) {
-                  captureResolve({
-                    ok: false,
-                    reason: chromeApi.runtime.lastError.message || 'capture-visible-tab-failed'
-                  });
-                  return;
-                }
-                captureResolve({
-                  ok: true,
-                  dataUrl
-                });
-              });
-            } catch (error) {
-              captureResolve({
-                ok: false,
-                reason: error && error.message ? error.message : 'capture-visible-tab-threw'
-              });
-            }
-          })).then((captureResult) => {
-            if (!captureResult || captureResult.ok !== true) {
-              logSwitcherThumbnailCaptureFailure(
-                resolvedTab,
-                captureResult && captureResult.reason ? captureResult.reason : 'capture-visible-tab-failed',
-                reason
-              );
+          shouldSkipSwitcherThumbnailCaptureForOpenSwitcher(resolvedTab, reason).then((shouldSkip) => {
+            if (shouldSkip) {
+              logSwitcherThumbnailCaptureFailure(resolvedTab, 'tab-switcher-open', reason);
               resolve(false);
               return;
             }
-            verifyCapturedTabStillActive(tabId, resolvedTab).then((freshTab) => {
-              if (!freshTab) {
-                logSwitcherThumbnailCaptureFailure(resolvedTab, 'tab-became-inactive', reason);
+            lastCaptureAt = Date.now();
+            withTabSwitcherHiddenForCapture(resolvedTab, () => new Promise((captureResolve) => {
+              try {
+                chromeApi.tabs.captureVisibleTab(captureWindowId, {
+                  format: 'jpeg',
+                  quality: CAPTURE_JPEG_QUALITY
+                }, (dataUrl) => {
+                  if (chromeApi.runtime && chromeApi.runtime.lastError) {
+                    captureResolve({
+                      ok: false,
+                      reason: chromeApi.runtime.lastError.message || 'capture-visible-tab-failed'
+                    });
+                    return;
+                  }
+                  captureResolve({
+                    ok: true,
+                    dataUrl
+                  });
+                });
+              } catch (error) {
+                captureResolve({
+                  ok: false,
+                  reason: error && error.message ? error.message : 'capture-visible-tab-threw'
+                });
+              }
+            })).then((captureResult) => {
+              if (!captureResult || captureResult.ok !== true) {
+                logSwitcherThumbnailCaptureFailure(
+                  resolvedTab,
+                  captureResult && captureResult.reason ? captureResult.reason : 'capture-visible-tab-failed',
+                  reason
+                );
                 resolve(false);
                 return;
               }
-              prepareSwitcherThumbnailDataUrl(captureResult.dataUrl).then((thumbnailDataUrl) => {
-                if (!thumbnailDataUrl || !tracker || typeof tracker.setThumbnail !== 'function') {
-                  logSwitcherThumbnailCaptureFailure(resolvedTab, 'empty-thumbnail-data', reason);
+              verifyCapturedTabStillActive(tabId, resolvedTab, captureWindowId).then((freshTab) => {
+                if (!freshTab) {
+                  logSwitcherThumbnailCaptureFailure(resolvedTab, 'tab-became-inactive', reason);
                   resolve(false);
                   return;
                 }
-                const didSet = tracker.setThumbnail(freshTab.id, thumbnailDataUrl, Date.now(), {
-                  url: getResolvedTabUrl(freshTab)
-                });
-                if (didSet) {
-                  schedulePersistState();
-                  if (isSwitcherCommandCaptureReason(reason)) {
-                    postTabSwitcherThumbnailUpdate(freshTab, {
-                      tabId: freshTab.id,
-                      url: getResolvedTabUrl(freshTab),
-                      thumbnail: thumbnailDataUrl,
-                      thumbnailStatus: 'ok',
-                      thumbnailReason: ''
-                    }).catch(() => {});
+                prepareSwitcherThumbnailDataUrl(captureResult.dataUrl).then((thumbnailDataUrl) => {
+                  if (!thumbnailDataUrl || !tracker || typeof tracker.setThumbnail !== 'function') {
+                    logSwitcherThumbnailCaptureFailure(resolvedTab, 'empty-thumbnail-data', reason);
+                    resolve(false);
+                    return;
                   }
-                } else {
-                  logSwitcherThumbnailCaptureFailure(resolvedTab, 'thumbnail-cache-rejected', reason);
-                }
-                resolve(Boolean(didSet));
-              }).catch(() => {
-                logSwitcherThumbnailCaptureFailure(resolvedTab, 'prepare-thumbnail-failed', reason);
-                resolve(false);
+                  const didSet = tracker.setThumbnail(freshTab.id, thumbnailDataUrl, Date.now(), {
+                    url: getResolvedTabUrl(freshTab)
+                  });
+                  if (didSet) {
+                    schedulePersistState();
+                    if (isSwitcherCommandCaptureReason(reason)) {
+                      postTabSwitcherThumbnailUpdate(freshTab, {
+                        tabId: freshTab.id,
+                        url: getResolvedTabUrl(freshTab),
+                        thumbnail: thumbnailDataUrl,
+                        thumbnailStatus: 'ok',
+                        thumbnailReason: ''
+                      }).catch(() => {});
+                    }
+                  } else {
+                    logSwitcherThumbnailCaptureFailure(resolvedTab, 'thumbnail-cache-rejected', reason);
+                  }
+                  resolve(Boolean(didSet));
+                }).catch(() => {
+                  logSwitcherThumbnailCaptureFailure(resolvedTab, 'prepare-thumbnail-failed', reason);
+                  resolve(false);
+                });
               });
+            }).catch(() => {
+              logSwitcherThumbnailCaptureFailure(resolvedTab, 'capture-visible-tab-failed', reason);
+              resolve(false);
             });
           }).catch(() => {
-            logSwitcherThumbnailCaptureFailure(resolvedTab, 'capture-visible-tab-failed', reason);
+            logSwitcherThumbnailCaptureFailure(resolvedTab, 'tab-switcher-open-state-failed', reason);
             resolve(false);
           });
-        }).catch(() => {
-          logSwitcherThumbnailCaptureFailure(resolvedTab, 'tab-switcher-open-state-failed', reason);
-          resolve(false);
         });
       });
       if (typeof chromeApi.tabs.get !== 'function') {
