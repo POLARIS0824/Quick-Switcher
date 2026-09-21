@@ -2191,7 +2191,9 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         const at = Number(request && request.at);
         const reportedAt = Number.isFinite(at) ? at : Date.now();
         recordRecentSwitcherTab(senderTab, reportedAt);
-        scheduleSwitcherThumbnailCapture(senderTab, 'visible');
+        if (!request || request.reason !== 'panel') {
+          scheduleSwitcherThumbnailCapture(senderTab, 'visible');
+        }
       }
       sendResponse({ ok: true });
       return;

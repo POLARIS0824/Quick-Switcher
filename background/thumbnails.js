@@ -305,7 +305,53 @@
       }
     }
 
+    function isSwitcherThumbnailCaptureSkippedReason(reason) {
+      const text = String(reason || '').toLowerCase();
+      return text === 'tab-switcher-open' ||
+             text === 'switcher-opening-guard' ||
+             text.includes('opening-guard') ||
+             text === 'tab-became-inactive' ||
+             text === 'inactive-tab' ||
+             text === 'deferred' ||
+             text === 'skipped' ||
+             text === 'capture-deferred' ||
+             text === 'capture-skipped';
+    }
+
+    function handleSwitcherThumbnailCaptureSkipped(tab, skipReason, requestReason) {
+      if (!tab || typeof tab.id !== 'number') {
+        return;
+      }
+      const url = getResolvedTabUrl(tab);
+      const existingState = getSwitcherThumbnailStateForTab(tab.id, url);
+      // If already ok with image, keep it ok - do not touch it
+      if (existingState && existingState.status === 'ok' && existingState.dataUrl) {
+        return;
+      }
+      // If it has image data (e.g. from before but status was marked pending), restore ok
+      if (existingState && existingState.dataUrl && existingState.dataUrl.startsWith('data:image/')) {
+        if (tracker && typeof tracker.setThumbnail === 'function') {
+          tracker.setThumbnail(tab.id, existingState.dataUrl, existingState.capturedAt || Date.now(), {
+            url
+          });
+          schedulePersistState();
+        }
+        return;
+      }
+      // If it was pending without an image, revert to missing so it doesn't get stuck in pending or failed
+      if (existingState && existingState.status === 'pending') {
+        if (tracker && typeof tracker.setThumbnail === 'function') {
+          tracker.setThumbnail(tab.id, '', 0, { url });
+          schedulePersistState();
+        }
+      }
+    }
+
     function logSwitcherThumbnailCaptureFailure(tab, failureReason, requestReason) {
+      if (isSwitcherThumbnailCaptureSkippedReason(failureReason)) {
+        handleSwitcherThumbnailCaptureSkipped(tab, failureReason, requestReason);
+        return;
+      }
       markSwitcherThumbnailStatus(
         tab,
         getSwitcherThumbnailStatusForFailureReason(failureReason),
@@ -353,18 +399,24 @@
 
     function shouldSkipSwitcherThumbnailCaptureForOpenSwitcher(tab, reason) {
       if (isSwitcherCommandCaptureReason(reason)) {
-        return Promise.resolve(false);
+        return Promise.resolve('');
       }
       if (isTabSwitcherOpeningForCapture(tab)) {
-        return Promise.resolve(true);
+        return Promise.resolve('switcher-opening-guard');
       }
       return getOpenTabSwitcherState(tab)
-        .then((state) => Boolean(state && state.open === true))
-        .catch(() => false);
+        .then((state) => (state && state.open === true ? 'tab-switcher-open' : ''))
+        .catch(() => '');
     }
 
     function enqueueSwitcherThumbnailCapture(tab, reason) {
-      markSwitcherThumbnailStatus(tab, 'pending', reason, '');
+      const url = getResolvedTabUrl(tab);
+      const existingState = tab && typeof tab.id === 'number'
+        ? getSwitcherThumbnailStateForTab(tab.id, url)
+        : null;
+      if (!existingState || existingState.status !== 'ok' || !existingState.dataUrl) {
+        markSwitcherThumbnailStatus(tab, 'pending', reason, '');
+      }
       const runCapture = () => waitForSwitcherThumbnailCaptureSlot()
         .then(() => captureSwitcherThumbnailForTab(tab, reason));
       const queued = thumbnailCaptureChain
@@ -495,9 +547,9 @@
             resolve(false);
             return;
           }
-          shouldSkipSwitcherThumbnailCaptureForOpenSwitcher(resolvedTab, reason).then((shouldSkip) => {
-            if (shouldSkip) {
-              logSwitcherThumbnailCaptureFailure(resolvedTab, 'tab-switcher-open', reason);
+          shouldSkipSwitcherThumbnailCaptureForOpenSwitcher(resolvedTab, reason).then((skipReason) => {
+            if (skipReason) {
+              logSwitcherThumbnailCaptureFailure(resolvedTab, skipReason, reason);
               resolve(false);
               return;
             }
@@ -610,7 +662,11 @@
       const hasPriority = consumeSwitcherThumbnailPriority(tab, reason);
       const requestReason = hasPriority ? `priority-${reason || 'visible'}` : reason;
       clearScheduledSwitcherThumbnailCapture(tab.id);
-      markSwitcherThumbnailStatus(tab, 'pending', requestReason, '');
+      const url = getResolvedTabUrl(tab);
+      const existingState = getSwitcherThumbnailStateForTab(tab.id, url);
+      if (!existingState || existingState.status !== 'ok' || !existingState.dataUrl) {
+        markSwitcherThumbnailStatus(tab, 'pending', requestReason, '');
+      }
       const delay = hasPriority ? PRIORITY_CAPTURE_DELAY_MS : CAPTURE_DELAY_MS;
       const request = {
         tabId: tab.id,
